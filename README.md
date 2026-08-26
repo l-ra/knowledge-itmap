@@ -1,0 +1,106 @@
+# IT Map — Organization Architecture Editor
+
+Doménově specializovaný editor nad **Knowledge Core** a metamodelem **archimate-lite ≥ 2.1.0**.
+Uživatel prochází a edituje model organizace ve sloupcovém browseru (Organization → … → Network / Location).
+
+Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
+
+## Požadavky
+
+- Node.js 20+
+- Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
+- Naimportované packages: `kc-base` 1.0.0 + `archimate-lite` 2.1.0
+
+## Lokální spuštění s Knowledge Core (DEV)
+
+### 1. Spusť Knowledge Core
+
+Dle [knowledge-core/README.md](../knowledge-core/README.md) a [models/archimate-lite/README.md](../knowledge-core/models/archimate-lite/README.md):
+
+```bash
+cd /home/rasekl/src/knowledge-core
+docker compose -f deploy/docker-compose.yml up -d postgres
+# volitelně: pocket-id
+
+export KC_DATABASE_URL='postgres://kc:kc@localhost:5433/knowledge_core?sslmode=disable'
+export KC_AUTH_MODE=bootstrap
+make dev
+# API:  http://localhost:8080
+# KC UI: http://localhost:5173/ui/
+```
+
+Bootstrap heslo: výpis při prvním startu / soubor v kontejneru `/data/admin.password`.
+
+### 2. Import metamodelu + demo
+
+```bash
+cd /home/rasekl/src/knowledge-itmap
+export KC_TOKEN='<bootstrap-heslo>'
+export KC_ROOT=/home/rasekl/src/knowledge-core   # default: ../knowledge-core
+npm run setup:check
+npm run setup:seed
+```
+
+`setup:seed` importuje:
+
+1. `kc-base-1.0.0.bundle.json`
+2. `archimate-lite-2.1.0.bundle.json`
+3. volitelně demo loader `archimate-lite-demo`
+4. package `org-demo` (continuous, závislost `archimate-lite ^2.1.0`)
+
+Alternativa ručně (KC UI → Packages → Import release bundle) ve stejném pořadí.
+
+### 3. Spusť IT Map
+
+```bash
+cd /home/rasekl/src/knowledge-itmap
+cp .env.example .env   # volitelné
+npm install
+npm run dev
+# http://localhost:5174
+```
+
+Vite proxy: `/v1` a `/healthz` → `KC_PROXY_TARGET` (default `http://localhost:8080`).
+
+V UI: **Settings** → auth mode `bootstrap` → vlož heslo → **Uložit** → **Browser**.
+
+Org package: vytvoř / vyber v **Packages** (`org-demo`).
+
+## Co aplikace umí (MVP)
+
+| Oblast | Funkce |
+|--------|--------|
+| Column browser | Traversal templates: Business exploration, Application impact, Infrastructure |
+| Focus path | Breadcrumb grafem |
+| Inspector Basic | Název, popis, actorKind |
+| Inspector Extended | Statements, edit property, open-world nová property |
+| CRUD | Doménové „+ Přidat“ s odvozenými ArchiMate vztahy |
+| Packages | Seznam, import bundle, publish release, org package |
+| Changes | ChangeSet historie |
+| Search | KC full-text projekce |
+
+## Struktura
+
+```text
+src/
+  kc/           — HTTP klient, SchemaResolver
+  domain/       — templates, TraversalEngine, ModelService
+  pages/        — Browser, Packages, Changes, Settings, Search
+  components/   — Inspector, AddDialog, Toast
+scripts/        — check-kc.sh, seed-demo.sh
+docs/           — funkční specifikace a návrhy
+```
+
+## Auth režimy
+
+| Mode | Použití |
+|------|---------|
+| `bootstrap` | Bearer = KC bootstrap heslo (lokální DEV) |
+| `dev` | `X-Subject` + `X-Roles` (KC `KC_AUTH_MODE=dev`) |
+| `bearer` | OIDC / JWT |
+
+## Poznámky
+
+- Schema se resolvuje přes `iriLocal` — nikdy hardcoded Q/P z jiné instalace.
+- Vyžaduje `archimate-lite` **2.1.0+** (`BusinessFunction`, `actorKind`, `flowLabel`, …).
+- Flow vyžaduje `flowLabel`; Association nabízí `associationKind`.
