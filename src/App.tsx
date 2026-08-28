@@ -7,6 +7,7 @@ import { PackagesPage } from "@/pages/PackagesPage";
 import { ChangeSetsPage } from "@/pages/ChangeSetsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SearchPage } from "@/pages/SearchPage";
+import { NavigationConfigPage } from "@/pages/NavigationConfigPage";
 
 function ChangeSetBar() {
   const {
@@ -104,6 +105,7 @@ function Shell() {
           </NavLink>
           <NavLink to="/search">Search</NavLink>
           <NavLink to="/packages">Packages</NavLink>
+          <NavLink to="/navigation">Navigace</NavLink>
           <NavLink to="/changes">Changes</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
@@ -113,6 +115,7 @@ function Shell() {
           <Route path="/" element={<BrowserPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/packages" element={<PackagesPage />} />
+          <Route path="/navigation" element={<NavigationConfigPage />} />
           <Route path="/changes" element={<ChangeSetsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
