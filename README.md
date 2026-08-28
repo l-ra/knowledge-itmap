@@ -1,6 +1,6 @@
 # IT Map — Organization Architecture Editor
 
-Doménově specializovaný editor nad **Knowledge Core** a metamodelem **archimate-lite ≥ 2.1.0**.
+Doménově specializovaný editor nad **Knowledge Core** a metamodelem **archimate-lite ≥ 2.3.0**.
 Uživatel prochází a edituje model organizace ve sloupcovém browseru (Organization → … → Network / Location).
 
 Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
@@ -9,7 +9,7 @@ Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
 
 - Node.js 20+
 - Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
-- Naimportované packages: `kc-base` 1.0.0 + `archimate-lite` 2.1.0
+- Naimportované packages: `kc-base` 1.0.0 + `archimate-lite` 2.3.0
 
 ## Lokální spuštění s Knowledge Core (DEV)
 
@@ -44,9 +44,9 @@ npm run setup:seed
 `setup:seed` importuje:
 
 1. `kc-base-1.0.0.bundle.json`
-2. `archimate-lite-2.1.0.bundle.json`
+2. `archimate-lite-2.3.0.bundle.json`
 3. volitelně demo loader `archimate-lite-demo`
-4. package `org-demo` (continuous, závislost `archimate-lite ^2.1.0`)
+4. package `org-demo` (continuous, závislost `archimate-lite ^2.3.0`)
 
 Alternativa ručně (KC UI → Packages → Import release bundle) ve stejném pořadí.
 

@@ -1,6 +1,6 @@
 # Implementační plán: konfigurace traversalu přes metadata v KC
 
-**Stav:** Návrh k realizaci  
+**Stav:** Implementováno (fáze 1–5, srpen 2026)  
 **Datum:** 2026-08-28  
 **Kontext:** Přesun topologie column browseru z hardcoded `templates.ts` do deklarativních dat v Knowledge Core
 
@@ -568,11 +568,15 @@ Testovací data: rozšířit `seed-demo.sh` o volitelný `org-demo-nav` profil s
 
 ---
 
-## 13. Další krok
+## 13. Stav implementace
 
-1. Schválit tento plán a rozhodnutí v §12.
-2. Zahájit **Fázi 1** v `knowledge-core` (catalog + seed).
-3. Paralelně připravit mapper a testy ve **Fázi 2** proti mock KC odpovědím.
+| Fáze | Stav |
+|------|------|
+| 1 — Metamodel + seed (knowledge-core 2.3.0) | ✅ |
+| 2 — Resolver + Browser z KC | ✅ |
+| 3 — Vazba org profilu | ✅ |
+| 4 — Editor pravidel (`/navigation`) | ✅ |
+| 5 — Seed, docs, fallback | ✅ |
 
 ---
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Import kc-base + archimate-lite 2.1.0 and optional demo seed into local Knowledge Core.
+# Import kc-base + archimate-lite 2.3.0 and optional demo seed into local Knowledge Core.
 set -euo pipefail
 
 KC_URL="${KC_BASE_URL:-http://localhost:8080}"
@@ -12,7 +12,7 @@ echo "KC_ROOT=$KC_ROOT"
 echo "KC_URL=$KC_URL"
 
 kc_base="$KC_ROOT/models/kc-base/releases/kc-base-1.0.0.bundle.json"
-aml="$KC_ROOT/models/archimate-lite/releases/archimate-lite-2.1.0.bundle.json"
+aml="$KC_ROOT/models/archimate-lite/releases/archimate-lite-2.3.0.bundle.json"
 
 if [[ ! -f "$kc_base" ]]; then
   echo "Missing $kc_base"
@@ -27,7 +27,7 @@ echo "Importing kc-base 1.0.0 …"
 curl -sf "${auth[@]}" --data-binary @"$kc_base" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
-echo "Importing archimate-lite 2.1.0 …"
+echo "Importing archimate-lite 2.3.0 …"
 curl -sf "${auth[@]}" --data-binary @"$aml" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
@@ -58,7 +58,7 @@ curl -sf "${auth[@]}" -H "Idempotency-Key: itmap-org-demo" \
     "iriBase":"https://example.org/org-demo/",
     "labels":{"en":"Org Demo","cs":"Org Demo"},
     "descriptions":{"en":"IT Map demo organization package","cs":"Demo package organizace IT Map"},
-    "dependencies":[{"dependsOnCode":"archimate-lite","versionRange":"^2.1.0"}]
+    "dependencies":[{"dependsOnCode":"archimate-lite","versionRange":"^2.3.0"}]
   }' "$KC_URL/v1/packages" >/dev/null 2>&1 || true
 
 echo "Done. Open IT Map (npm run dev) → Settings → set token → Browser."

@@ -179,7 +179,7 @@ export function PackagesPage() {
           Vytvořit / použít org package
         </button>
         <p className="empty" style={{ textAlign: "left" }}>
-          Závislost: <code>archimate-lite ^2.1.0</code>
+          Závislost: <code>archimate-lite ^2.3.0</code>
         </p>
       </section>
 
@@ -187,7 +187,7 @@ export function PackagesPage() {
         <h3>Import release bundle</h3>
         <p className="empty" style={{ textAlign: "left" }}>
           Nejdřív <code>kc-base-1.0.0.bundle.json</code>, pak{" "}
-          <code>archimate-lite-2.1.0.bundle.json</code>
+          <code>archimate-lite-2.3.0.bundle.json</code>
         </p>
         <input
           type="file"

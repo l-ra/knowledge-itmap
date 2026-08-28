@@ -133,7 +133,7 @@ export function SettingsPage() {
           <code>export KC_AUTH_MODE=bootstrap</code> a <code>make dev</code> (API :8080)
         </li>
         <li>
-          Import bundleů: kc-base 1.0.0 → archimate-lite 2.1.0 (UI nebo{" "}
+          Import bundleů: kc-base 1.0.0 → archimate-lite 2.3.0 (UI nebo{" "}
           <code>scripts/seed-demo.sh</code>)
         </li>
         <li>
