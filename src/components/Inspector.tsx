@@ -15,10 +15,12 @@ import { PropertyStatementEditor } from "./PropertyStatementEditor";
 interface Props {
   entity: Entity | null;
   classLocal?: string;
+  isPeek?: boolean;
+  onClosePeek?: () => void;
   onUpdated: () => void;
 }
 
-export function Inspector({ entity, classLocal, onUpdated }: Props) {
+export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }: Props) {
   const { orgPackage, orgPackageLabel, packageDisplayName, pushChangeSet } = useApp();
   const [tab, setTab] = useState<"basic" | "extended">("basic");
   const [stmts, setStmts] = useState<Statement[]>([]);
@@ -218,7 +220,17 @@ export function Inspector({ entity, classLocal, onUpdated }: Props) {
       : ["department", "person", "external"];
 
   return (
-    <aside className="inspector">
+    <aside className={`inspector ${isPeek ? "inspector-peek" : ""}`}>
+      {isPeek && (
+        <div className="inspector-peek-banner">
+          <span>Náhled entity (neaktivní tok)</span>
+          {onClosePeek && (
+            <button type="button" className="toolbar-btn" onClick={onClosePeek}>
+              Zavřít náhled
+            </button>
+          )}
+        </div>
+      )}
       <div className="inspector-header">
         <h2>{entityLabel(entity)}</h2>
         <div className="meta" style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
