@@ -20,6 +20,14 @@ import {
 } from "@/kc/client";
 import { getSchema, packageLabel } from "@/kc/schema";
 import type { ChangeSet, PackageInfo } from "@/kc/types";
+import {
+  getNavigationResolver,
+  loadStoredTemplateCode,
+  resetNavigationResolver,
+  saveStoredTemplateCode,
+} from "@/domain/navigationProfile";
+import type { ResolvedNavigationProfile } from "@/domain/navigationProfileTypes";
+import { resetNavigationLoader } from "@/domain/navigationProfileLoader";
 
 export type ActiveChangeSet = StoredActiveChangeSet;
 
@@ -50,6 +58,12 @@ interface AppState {
   /** Increments when graph visibility may change (commit/cancel/resume). */
   graphEpoch: number;
   bumpGraphEpoch: () => void;
+  /** Resolved KC navigation profile for active org. */
+  navigationProfile: ResolvedNavigationProfile | null;
+  navigationLoading: boolean;
+  templateCode: string;
+  setTemplateCode: (code: string) => void;
+  reloadNavigationProfile: () => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -77,8 +91,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [actorRoles, setActorRoles] = useState<string[]>([]);
   const [graphEpoch, setGraphEpoch] = useState(0);
   const [csReady, setCsReady] = useState(false);
+  const [navigationProfile, setNavigationProfile] = useState<ResolvedNavigationProfile | null>(null);
+  const [navigationLoading, setNavigationLoading] = useState(false);
+  const [templateCode, setTemplateCodeState] = useState(loadStoredTemplateCode);
 
   const bumpGraphEpoch = useCallback(() => setGraphEpoch((n) => n + 1), []);
+
+  const reloadNavigationProfile = useCallback(async () => {
+    if (!getSchema().isLoaded()) return;
+    setNavigationLoading(true);
+    resetNavigationLoader();
+    resetNavigationResolver();
+    try {
+      const resolved = await getNavigationResolver().loadResolvedProfile(orgPackage);
+      setNavigationProfile(resolved);
+    } catch (e) {
+      console.warn("Navigation profile load failed:", e);
+      setNavigationProfile(null);
+    } finally {
+      setNavigationLoading(false);
+    }
+  }, [orgPackage]);
+
+  const setTemplateCode = useCallback((code: string) => {
+    saveStoredTemplateCode(code);
+    setTemplateCodeState(code);
+  }, []);
 
   const applyActive = useCallback((cs: ActiveChangeSet | null) => {
     storeActiveChangeSet(cs);
@@ -118,6 +156,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [reloadPackages]);
+
+  useEffect(() => {
+    if (!ready) return;
+    void reloadNavigationProfile();
+  }, [ready, orgPackage, graphEpoch, reloadNavigationProfile]);
 
   useEffect(() => {
     void reloadSchema();
@@ -274,6 +317,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       resumeChangeSet,
       graphEpoch,
       bumpGraphEpoch,
+      navigationProfile,
+      navigationLoading,
+      templateCode,
+      setTemplateCode,
+      reloadNavigationProfile,
     }),
     [
       ready,
@@ -298,6 +346,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       resumeChangeSet,
       graphEpoch,
       bumpGraphEpoch,
+      navigationProfile,
+      navigationLoading,
+      templateCode,
+      setTemplateCode,
+      reloadNavigationProfile,
     ],
   );
 

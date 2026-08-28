@@ -3,12 +3,7 @@ import { getKc } from "@/kc/client";
 import { entityLabel } from "@/kc/schema";
 import type { Entity } from "@/kc/types";
 import { ModelService } from "@/domain/modelService";
-import {
-  getTemplate,
-  TEMPLATES,
-  type AddActionDef,
-  type TraversalTemplate,
-} from "@/domain/templates";
+import { getTemplate, type AddActionDef, type TraversalTemplate } from "@/domain/templates";
 import {
   type ColumnItem,
   type ColumnState,
@@ -20,8 +15,18 @@ import { AddDialog } from "@/components/AddDialog";
 import { Inspector } from "@/components/Inspector";
 
 export function BrowserPage() {
-  const { ready, error, orgPackage, orgPackageLabel, pushChangeSet, graphEpoch } = useApp();
-  const [templateCode, setTemplateCode] = useState("business-exploration");
+  const {
+    ready,
+    error,
+    orgPackage,
+    orgPackageLabel,
+    pushChangeSet,
+    graphEpoch,
+    navigationProfile,
+    navigationLoading,
+    templateCode,
+    setTemplateCode,
+  } = useApp();
   const [columns, setColumns] = useState<ColumnState[]>([]);
   const [focus, setFocus] = useState<FocusStep[]>([]);
   const [selected, setSelected] = useState<{ entity: Entity; classLocal: string } | null>(null);
@@ -30,13 +35,25 @@ export function BrowserPage() {
 
   const engine = useMemo(() => new TraversalEngine(), []);
   const model = useMemo(() => new ModelService(), []);
-  const template: TraversalTemplate = getTemplate(templateCode);
+
+  const template: TraversalTemplate = useMemo(() => {
+    const fromProfile = navigationProfile?.templates.find((t) => t.template.code === templateCode);
+    if (fromProfile) return fromProfile.template;
+    return getTemplate(templateCode);
+  }, [navigationProfile, templateCode]);
+
+  const templateOptions = useMemo(() => {
+    if (navigationProfile?.templates.length) {
+      return navigationProfile.templates.map((t) => t.template);
+    }
+    return [template];
+  }, [navigationProfile, template]);
 
   const refreshRoot = useCallback(async () => {
-    if (!ready) return;
+    if (!ready || navigationLoading) return;
     setLoading(true);
     try {
-      const root = await engine.loadRootColumn(orgPackage, templateCode);
+      const root = await engine.loadRootColumn(orgPackage, template);
       setColumns([root]);
       setFocus([]);
       setSelected(null);
@@ -52,7 +69,7 @@ export function BrowserPage() {
     } finally {
       setLoading(false);
     }
-  }, [ready, orgPackage, templateCode, engine, template.stages]);
+  }, [ready, navigationLoading, orgPackage, template, engine]);
 
   useEffect(() => {
     void refreshRoot();
@@ -79,7 +96,6 @@ export function BrowserPage() {
         columns[colIndex].stage.code,
       );
       const kept = columns.slice(0, colIndex + 1);
-      // update selection highlight data is via focus
       if (next) setColumns([...kept, next]);
       else setColumns(kept);
     } finally {
@@ -93,7 +109,7 @@ export function BrowserPage() {
     void (async () => {
       setLoading(true);
       try {
-        const cols = await engine.expandPath(orgPackage, templateCode, truncated);
+        const cols = await engine.expandPath(orgPackage, template, truncated);
         setColumns(cols);
         const last = truncated[truncated.length - 1];
         if (last) {
@@ -111,12 +127,6 @@ export function BrowserPage() {
     if (!stageCode) return;
     const selectedId =
       focus.length > 0 ? focus[focus.length - 1]?.entityId : undefined;
-
-    // For root organization add, no parent needed
-    const needsParent = action.derivesRelationship && stageCode !== "organization";
-    if (needsParent && !selectedId && stageCode !== template.stages[0].code) {
-      // allow creating roots in first column without parent
-    }
 
     const result = await model.createElement({
       packageCode: orgPackage,
@@ -151,6 +161,12 @@ export function BrowserPage() {
         </div>
       )}
 
+      {navigationProfile?.usedFallback && (
+        <div className="status-banner">
+          Navigační profil z KC není k dispozici — použity vestavěné šablony.
+        </div>
+      )}
+
       <div className="focus-path">
         <span className="focus-path-inner">
           <span>Focus:</span>
@@ -165,7 +181,7 @@ export function BrowserPage() {
               </button>
             </span>
           ))}
-          {loading && <span className="loading-dot">…</span>}
+          {(loading || navigationLoading) && <span className="loading-dot">…</span>}
         </span>
       </div>
 
@@ -225,8 +241,12 @@ export function BrowserPage() {
       <div className="traversal-bar">
         <label>
           Traversal{" "}
-          <select value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
-            {TEMPLATES.map((t) => (
+          <select
+            value={templateCode}
+            onChange={(e) => setTemplateCode(e.target.value)}
+            disabled={navigationLoading}
+          >
+            {templateOptions.map((t) => (
               <option key={t.code} value={t.code}>
                 {t.labelCs}
               </option>

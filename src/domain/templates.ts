@@ -474,12 +474,16 @@ export const INFRASTRUCTURE: TraversalTemplate = {
   addActions: [],
 };
 
-export const TEMPLATES: TraversalTemplate[] = [
+/** Built-in fallback when KC navigation profile is unavailable. */
+export const FALLBACK_TEMPLATES: TraversalTemplate[] = [
   BUSINESS_EXPLORATION,
   APPLICATION_IMPACT,
   INFRASTRUCTURE,
 ];
 
+/** @deprecated Use NavigationProfileResolver — kept for tests and fallback. */
+export const TEMPLATES = FALLBACK_TEMPLATES;
+
 export function getTemplate(code: string): TraversalTemplate {
-  return TEMPLATES.find((t) => t.code === code) || BUSINESS_EXPLORATION;
+  return FALLBACK_TEMPLATES.find((t) => t.code === code) || BUSINESS_EXPLORATION;
 }

@@ -2,7 +2,6 @@ import { getKc, type KcClient } from "../kc/client";
 import { entityLabel, getSchema, type SchemaResolver } from "../kc/schema";
 import type { Entity, Statement } from "../kc/types";
 import {
-  getTemplate,
   type StageDef,
   type TraversalTemplate,
   type TransitionDef,
@@ -68,9 +67,8 @@ export class TraversalEngine {
 
   async loadRootColumn(
     packageCode: string,
-    templateCode: string,
+    template: TraversalTemplate,
   ): Promise<ColumnState> {
-    const template = getTemplate(templateCode);
     const stage = template.stages[0];
     const items = await this.loadStageRoots(packageCode, stage);
     return { stage, items, loading: false };
@@ -126,14 +124,13 @@ export class TraversalEngine {
   /** Expand immediate next stages along the template path. */
   async expandPath(
     packageCode: string,
-    templateCode: string,
+    template: TraversalTemplate,
     focus: FocusStep[],
   ): Promise<ColumnState[]> {
-    const template = getTemplate(templateCode);
     const columns: ColumnState[] = [];
 
     // Root
-    const root = await this.loadRootColumn(packageCode, templateCode);
+    const root = await this.loadRootColumn(packageCode, template);
     columns.push(root);
 
     for (let i = 0; i < focus.length; i++) {
@@ -208,6 +205,14 @@ export class TraversalEngine {
 
       for (const { neighborId, relId } of neighborIds) {
         if (found.has(neighborId)) continue;
+        if (tr.requireProperty) {
+          const propVal = await this.readStringProp(relId, tr.requireProperty.property);
+          if (tr.requireProperty.value !== undefined) {
+            if (propVal !== tr.requireProperty.value) continue;
+          } else if (!propVal) {
+            continue;
+          }
+        }
         const entity = await this.kc.getEntity(neighborId);
         const classLocal = await this.resolveClassLocal(entity);
         if (!classLocal) continue;
