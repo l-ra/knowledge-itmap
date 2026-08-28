@@ -27,7 +27,6 @@ import {
 } from "@/domain/traversal";
 import { useApp } from "@/state/AppContext";
 import { AddDialog } from "@/components/AddDialog";
-import { EntityInfoButton } from "@/components/EntityInfoButton";
 import { FlowBar } from "@/components/FlowBar";
 import { Inspector } from "@/components/Inspector";
 import { SpawnFlowDialog } from "@/components/SpawnFlowDialog";
@@ -61,7 +60,11 @@ export function BrowserPage() {
   const [peekEntity, setPeekEntity] = useState<{ entity: Entity; classLocal: string } | null>(
     null,
   );
-  const [addStage, setAddStage] = useState<string | null>(null);
+  const [addStage, setAddStage] = useState<{
+    flowId: string;
+    colIndex: number;
+    stageCode: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [spawnRequest, setSpawnRequest] = useState<SpawnRequest | null>(null);
   const [urlHydrated, setUrlHydrated] = useState(false);
@@ -274,6 +277,7 @@ export function BrowserPage() {
   }, [inspectTarget]);
 
   async function refreshFlowRoot(flowId: string) {
+    setActiveFlowId(flowId);
     const flow = flows.find((f) => f.id === flowId);
     if (!flow) return;
     setLoading(true);
@@ -287,6 +291,7 @@ export function BrowserPage() {
   }
 
   async function selectItem(flowId: string, colIndex: number, item: ColumnItem) {
+    setActiveFlowId(flowId);
     const flow = flows.find((f) => f.id === flowId);
     if (!flow) return;
     const template = resolveTemplate(flow.templateCode);
@@ -325,6 +330,7 @@ export function BrowserPage() {
   }
 
   function jumpFocus(flowId: string, index: number) {
+    setActiveFlowId(flowId);
     const flow = flows.find((f) => f.id === flowId);
     if (!flow) return;
     const truncated = flow.focus.slice(0, index + 1);
@@ -461,10 +467,13 @@ export function BrowserPage() {
     description: string,
     extras: Record<string, string>,
   ) {
-    if (!activeFlow || !addStage) return;
+    if (!addStage) return;
+    const targetFlow = flows.find((f) => f.id === addStage.flowId);
+    if (!targetFlow) return;
+    const parentColIndex = addStage.colIndex - 1;
     const selectedId =
-      activeFlow.focus.length > 0
-        ? activeFlow.focus[activeFlow.focus.length - 1]?.entityId
+      parentColIndex >= 0
+        ? targetFlow.focus[parentColIndex]?.entityId
         : undefined;
 
     const result = await model.createElement({
@@ -479,15 +488,17 @@ export function BrowserPage() {
 
     pushChangeSet(result.changeSet);
 
-    if (activeFlow.focus.length === 0) {
-      await refreshFlowRoot(activeFlow.id);
-    } else {
-      jumpFocus(activeFlow.id, activeFlow.focus.length - 1);
+    if (addStage.colIndex === 0) {
+      await refreshFlowRoot(targetFlow.id);
+    } else if (parentColIndex >= 0 && targetFlow.focus[parentColIndex]) {
+      jumpFocus(targetFlow.id, parentColIndex);
     }
   }
 
+  const addFlow = addStage ? flows.find((f) => f.id === addStage.flowId) : null;
+  const addTemplate = addFlow ? resolveTemplate(addFlow.templateCode) : activeTemplate;
   const addActions = addStage
-    ? activeTemplate.addActions.filter((a) => a.stage === addStage)
+    ? addTemplate.addActions.filter((a) => a.stage === addStage.stageCode)
     : [];
 
   const inspectorEntity = peekEntity ?? activeFlow?.selected ?? null;
@@ -510,124 +521,68 @@ export function BrowserPage() {
         </div>
       )}
 
-      <div className="flow-stack">
-        <div className="flow-stack-toolbar">
-          <button
-            type="button"
-            className="toolbar-btn"
-            disabled={!ready}
-            onClick={() => requestNewEmptyFlow()}
-          >
-            + Nový tok
-          </button>
-        </div>
-        {flows.map((flow) => (
-          <FlowBar
-            key={flow.id}
-            flow={flow}
-            isActive={flow.id === activeFlowId}
-            orgPackageLabel={orgPackageLabel}
-            templateOptions={templateOptions}
-            loading={loading}
-            onActivate={() => setActiveFlowId(flow.id)}
-            onClose={() => handleCloseFlow(flow.id)}
-            onPromote={() => handlePromoteFlow(flow.id)}
-            onToggleCollapse={() => patchFlow(flow.id, { collapsed: !flow.collapsed })}
-            onTemplateChange={(code) => void changeFlowTemplate(flow.id, code)}
-            onJumpFocus={(index) => jumpFocus(flow.id, index)}
-            onSpawnFromStep={(index) => requestSpawnFromStep(flow.id, index)}
-            onRefreshRoot={() => void refreshFlowRoot(flow.id)}
-            onInspectEntity={handleInspect}
-          />
-        ))}
-      </div>
-
-      {activeFlow && (
-        <div className="main-split">
-          <div className="columns">
-            {activeFlow.columns.map((col, colIndex) => (
-              <div className="column" key={`${col.stage.code}-${colIndex}`}>
-                <div className="column-header">
-                  <span>{col.stage.labelCs}</span>
-                  <span className="column-header-actions">
-                    <button
-                      type="button"
-                      className="spawn-col-btn"
-                      title="Nový tok od tohoto sloupce"
-                      onClick={() => requestSpawnFromColumn(activeFlow.id, colIndex)}
-                    >
-                      ↗
-                    </button>
-                    <span className="count">{col.items.length}</span>
-                  </span>
-                </div>
-                <div className="column-body">
-                  {col.error && <div className="empty">{col.error}</div>}
-                  {!col.error && col.items.length === 0 && (
-                    <div className="empty">Žádné objekty</div>
-                  )}
-                  {col.items.map((item) => {
-                    const isSelected =
-                      activeFlow.focus[colIndex]?.entityId === item.entity.id;
-                    return (
-                      <div
-                        key={item.entity.id}
-                        className={`column-item-row ${isSelected ? "selected" : ""}`}
-                      >
-                        <button
-                          type="button"
-                          className={`column-item ${isSelected ? "selected" : ""}`}
-                          onClick={() => void selectItem(activeFlow.id, colIndex, item)}
-                        >
-                          <span className="name">{entityLabel(item.entity)}</span>
-                          <span className="meta">{item.domainLabel}</span>
-                          {item.edgeLabelCs && <span className="edge">{item.edgeLabelCs}</span>}
-                        </button>
-                        <EntityInfoButton
-                          onClick={() => handleInspect(item.entity.id, item.classLocal)}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="column-footer">
-                  <button
-                    type="button"
-                    className="toolbar-btn"
-                    style={{ width: "100%" }}
-                    disabled={
-                      !ready ||
-                      activeTemplate.addActions.filter((a) => a.stage === col.stage.code)
-                        .length === 0
-                    }
-                    onClick={() => setAddStage(col.stage.code)}
-                  >
-                    + Přidat
-                  </button>
-                </div>
-              </div>
-            ))}
+      <div className="browser-body">
+        <div className="flow-panels">
+          <div className="flow-stack-toolbar">
+            <button
+              type="button"
+              className="toolbar-btn"
+              disabled={!ready}
+              onClick={() => requestNewEmptyFlow()}
+            >
+              + Nový tok
+            </button>
           </div>
-          <Inspector
-            entity={inspectorEntity?.entity ?? null}
-            classLocal={inspectorClassLocal}
-            isPeek={inspectorIsPeek}
-            onClosePeek={() => {
-              setInspectTarget(null);
-              setPeekEntity(null);
-            }}
-            onUpdated={() => {
-              if (activeFlow.focus.length) jumpFocus(activeFlow.id, activeFlow.focus.length - 1);
-              else void refreshFlowRoot(activeFlow.id);
-            }}
-          />
+          {flows.map((flow) => (
+            <FlowBar
+              key={flow.id}
+              flow={flow}
+              template={resolveTemplate(flow.templateCode)}
+              isActive={flow.id === activeFlowId}
+              orgPackageLabel={orgPackageLabel}
+              templateOptions={templateOptions}
+              ready={ready}
+              loading={loading}
+              onActivate={() => setActiveFlowId(flow.id)}
+              onClose={() => handleCloseFlow(flow.id)}
+              onPromote={() => handlePromoteFlow(flow.id)}
+              onToggleCollapse={() => patchFlow(flow.id, { collapsed: !flow.collapsed })}
+              onTemplateChange={(code) => void changeFlowTemplate(flow.id, code)}
+              onJumpFocus={(index) => jumpFocus(flow.id, index)}
+              onSpawnFromStep={(index) => requestSpawnFromStep(flow.id, index)}
+              onSpawnFromColumn={(colIndex) => requestSpawnFromColumn(flow.id, colIndex)}
+              onRefreshRoot={() => void refreshFlowRoot(flow.id)}
+              onInspectEntity={handleInspect}
+              onSelectItem={(colIndex, item) => void selectItem(flow.id, colIndex, item)}
+              onAddStage={(colIndex, stageCode) => {
+                setActiveFlowId(flow.id);
+                setAddStage({ flowId: flow.id, colIndex, stageCode });
+              }}
+            />
+          ))}
         </div>
-      )}
+
+        <Inspector
+          entity={inspectorEntity?.entity ?? null}
+          classLocal={inspectorClassLocal}
+          isPeek={inspectorIsPeek}
+          onClosePeek={() => {
+            setInspectTarget(null);
+            setPeekEntity(null);
+          }}
+          onUpdated={() => {
+            if (!activeFlow) return;
+            if (activeFlow.focus.length) jumpFocus(activeFlow.id, activeFlow.focus.length - 1);
+            else void refreshFlowRoot(activeFlow.id);
+          }}
+        />
+      </div>
 
       {addStage && addActions.length > 0 && (
         <AddDialog
           stageLabel={
-            activeTemplate.stages.find((s) => s.code === addStage)?.labelCs || addStage
+            addTemplate.stages.find((s) => s.code === addStage.stageCode)?.labelCs ||
+            addStage.stageCode
           }
           actions={addActions}
           onClose={() => setAddStage(null)}

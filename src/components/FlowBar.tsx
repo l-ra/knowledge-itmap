@@ -1,13 +1,17 @@
 import type { TraversalTemplate } from "@/domain/templates";
+import type { ColumnItem } from "@/domain/traversal";
 import type { FocusStep } from "@/domain/traversal";
 import { flowDisplayLabel, type NavigationFlow } from "@/domain/navigationFlows";
 import { EntityInfoButton } from "./EntityInfoButton";
+import { FlowColumns } from "./FlowColumns";
 
 interface Props {
   flow: NavigationFlow;
+  template: TraversalTemplate;
   isActive: boolean;
   orgPackageLabel: string;
   templateOptions: TraversalTemplate[];
+  ready: boolean;
   loading: boolean;
   onActivate: () => void;
   onClose: () => void;
@@ -16,15 +20,20 @@ interface Props {
   onTemplateChange: (code: string) => void;
   onJumpFocus: (index: number) => void;
   onSpawnFromStep: (index: number) => void;
+  onSpawnFromColumn: (colIndex: number) => void;
   onRefreshRoot: () => void;
   onInspectEntity: (entityId: string, classLocal: string) => void;
+  onSelectItem: (colIndex: number, item: ColumnItem) => void;
+  onAddStage: (colIndex: number, stageCode: string) => void;
 }
 
 export function FlowBar({
   flow,
+  template,
   isActive,
   orgPackageLabel,
   templateOptions,
+  ready,
   loading,
   onActivate,
   onClose,
@@ -33,8 +42,11 @@ export function FlowBar({
   onTemplateChange,
   onJumpFocus,
   onSpawnFromStep,
+  onSpawnFromColumn,
   onRefreshRoot,
   onInspectEntity,
+  onSelectItem,
+  onAddStage,
 }: Props) {
   const label = flowDisplayLabel(flow, orgPackageLabel);
 
@@ -111,33 +123,45 @@ export function FlowBar({
       </div>
 
       {!flow.collapsed && (
-        <div className="focus-path flow-focus-path">
-          <span className="focus-path-inner">
-            <span>Focus:</span>
-            <button type="button" onClick={onRefreshRoot} title={orgPackageLabel}>
-              {orgPackageLabel}
-            </button>
-            {flow.focus.map((f: FocusStep, i: number) => (
-              <span key={`${f.entityId}-${i}`} className="focus-step">
-                <span className="sep">›</span>
-                <button type="button" onClick={() => onJumpFocus(i)}>
-                  {f.label}
-                </button>
-                <EntityInfoButton
-                  onClick={() => onInspectEntity(f.entityId, f.classLocal)}
-                />
-                <button
-                  type="button"
-                  className="spawn-step-btn"
-                  title="Rozjet paralelní průchod odtud"
-                  onClick={() => onSpawnFromStep(i)}
-                >
-                  ↗
-                </button>
-              </span>
-            ))}
-            {loading && isActive && <span className="loading-dot">…</span>}
-          </span>
+        <div className="flow-bar-body">
+          <div className="focus-path flow-focus-path">
+            <span className="focus-path-inner">
+              <span>Focus:</span>
+              <button type="button" onClick={onRefreshRoot} title={orgPackageLabel}>
+                {orgPackageLabel}
+              </button>
+              {flow.focus.map((f: FocusStep, i: number) => (
+                <span key={`${f.entityId}-${i}`} className="focus-step">
+                  <span className="sep">›</span>
+                  <button type="button" onClick={() => onJumpFocus(i)}>
+                    {f.label}
+                  </button>
+                  <EntityInfoButton
+                    onClick={() => onInspectEntity(f.entityId, f.classLocal)}
+                  />
+                  <button
+                    type="button"
+                    className="spawn-step-btn"
+                    title="Rozjet paralelní průchod odtud"
+                    onClick={() => onSpawnFromStep(i)}
+                  >
+                    ↗
+                  </button>
+                </span>
+              ))}
+              {loading && isActive && <span className="loading-dot">…</span>}
+            </span>
+          </div>
+
+          <FlowColumns
+            flow={flow}
+            template={template}
+            ready={ready}
+            onSelectItem={onSelectItem}
+            onSpawnFromColumn={onSpawnFromColumn}
+            onAddStage={onAddStage}
+            onInspect={onInspectEntity}
+          />
         </div>
       )}
     </div>
