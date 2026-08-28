@@ -17,6 +17,15 @@ export interface CreateElementInput {
   flowLabel?: string;
 }
 
+export interface LinkElementInput {
+  packageCode: string;
+  action: AddActionDef;
+  existingEntityId: string;
+  selectedId?: string;
+  extraProps?: Record<string, string>;
+  flowLabel?: string;
+}
+
 export interface CreateResult {
   entity: Entity;
   relationship?: Entity;
@@ -92,7 +101,7 @@ export class ModelService {
               : {}),
             ...(input.flowLabel ? { flowLabel: input.flowLabel } : {}),
           };
-          relationship = await this.createRelationship({
+          relationship = await this.createRelationshipInChangeSet({
             packageCode: input.packageCode,
             typeLocal: input.action.derivesRelationship,
             sourceId:
@@ -113,6 +122,99 @@ export class ModelService {
     return { ...result, changeSet };
   }
 
+  async linkElement(input: LinkElementInput): Promise<CreateResult> {
+    if (!input.action.derivesRelationship) {
+      throw new Error("Tato akce neumožňuje připojení existující entity.");
+    }
+    if (!input.selectedId) {
+      throw new Error("Vyberte kontext v předchozím sloupci (položku vlevo).");
+    }
+
+    const exists = await this.relationshipExists(
+      input.selectedId,
+      input.existingEntityId,
+      input.action.derivesRelationship,
+    );
+    if (exists) {
+      throw new Error("Vztah mezi vybraným kontextem a touto entitou už existuje.");
+    }
+
+    const relProps: Record<string, string> = {
+      ...input.action.relationshipDefaults,
+      ...(input.extraProps?.associationKind
+        ? { associationKind: input.extraProps.associationKind }
+        : {}),
+      ...(input.flowLabel ? { flowLabel: input.flowLabel } : {}),
+    };
+
+    const { result, changeSet } = await this.kc.runLogicalChangeSet(
+      {
+        operationType: "linkElement",
+        comment: `link ${input.action.derivesRelationship}`,
+      },
+      async () => {
+        const entity = await this.kc.getEntity(input.existingEntityId);
+        const relationship = await this.createRelationshipInChangeSet({
+          packageCode: input.packageCode,
+          typeLocal: input.action.derivesRelationship!,
+          sourceId:
+            input.action.relationshipDirection === "from-new-to-selected"
+              ? input.existingEntityId
+              : input.selectedId!,
+          targetId:
+            input.action.relationshipDirection === "from-new-to-selected"
+              ? input.selectedId!
+              : input.existingEntityId,
+          props: relProps,
+        });
+        return { entity, relationship };
+      },
+    );
+    return { ...result, changeSet };
+  }
+
+  private async relationshipExists(
+    entityA: string,
+    entityB: string,
+    typeLocal: string,
+  ): Promise<boolean> {
+    const snap = this.schema.snapshot;
+    const typeIri = this.schema.classIri(typeLocal);
+
+    const checkSide = async (entityId: string, role: "source" | "target") => {
+      const prop = role === "source" ? snap.relSource : snap.relTarget;
+      const incoming = await this.kc.getIncoming(entityId, prop);
+      for (const stmt of incoming.items) {
+        const relId = stmt.subject;
+        const relEntity = await this.kc.getEntity(relId);
+        const classes = relEntity.effectiveClasses || [];
+        const isType =
+          classes.includes(typeIri) || (await this.entityIsInstanceOf(relId, typeIri));
+        if (!isType) continue;
+
+        const stmts = await this.kc.getStatements(relId);
+        const src = stmts.items.find((s) => s.property === snap.relSource);
+        const tgt = stmts.items.find((s) => s.property === snap.relTarget);
+        if (src?.value.type !== "EntityReference" || tgt?.value.type !== "EntityReference") {
+          continue;
+        }
+        const pair = [src.value.entityId, tgt.value.entityId];
+        if (pair.includes(entityA) && pair.includes(entityB)) return true;
+      }
+      return false;
+    };
+
+    return (await checkSide(entityA, "source")) || (await checkSide(entityB, "source"));
+  }
+
+  private async entityIsInstanceOf(entityId: string, classIri: string): Promise<boolean> {
+    const snap = this.schema.snapshot;
+    const stmts = await this.kc.getStatements(entityId, snap.instanceOfProperty);
+    return stmts.items.some(
+      (s) => s.value.type === "EntityReference" && s.value.entityId === classIri,
+    );
+  }
+
   async createRelationship(opts: {
     packageCode: string;
     typeLocal: string;
@@ -130,55 +232,65 @@ export class ModelService {
         comment: opts.typeLocal,
       },
       async () => {
-        const snap = this.schema.snapshot;
-        const typeIri = this.schema.classIri(opts.typeLocal);
-
-        const rel = await this.kc.createEntity({
-          packageCode: opts.packageCode,
-          labels: { en: `${opts.typeLocal}` },
-          iriLocal: `rel-${opts.typeLocal.toLowerCase()}-${Date.now().toString(36)}`,
-        });
-
-        await this.kc.createStatement({
-          packageCode: opts.packageCode,
-          subject: rel.data.id,
-          property: snap.instanceOfProperty,
-          value: { type: "EntityReference", entityId: typeIri },
-          upsert: true,
-        });
-
-        await this.kc.createStatement({
-          packageCode: opts.packageCode,
-          subject: rel.data.id,
-          property: snap.relSource,
-          value: { type: "EntityReference", entityId: opts.sourceId },
-          upsert: true,
-        });
-
-        await this.kc.createStatement({
-          packageCode: opts.packageCode,
-          subject: rel.data.id,
-          property: snap.relTarget,
-          value: { type: "EntityReference", entityId: opts.targetId },
-          upsert: true,
-        });
-
-        for (const [local, value] of Object.entries(opts.props || {})) {
-          const propIri = this.schema.tryPropertyIri(local);
-          if (!propIri) continue;
-          await this.kc.createStatement({
-            packageCode: opts.packageCode,
-            subject: rel.data.id,
-            property: propIri,
-            value: { type: "String", string: value },
-            upsert: true,
-          });
-        }
-
-        return rel.data;
+        return await this.createRelationshipInChangeSet(opts);
       },
     );
     return result;
+  }
+
+  private async createRelationshipInChangeSet(opts: {
+    packageCode: string;
+    typeLocal: string;
+    sourceId: string;
+    targetId: string;
+    props?: Record<string, string>;
+  }): Promise<Entity> {
+    const snap = this.schema.snapshot;
+    const typeIri = this.schema.classIri(opts.typeLocal);
+
+    const rel = await this.kc.createEntity({
+      packageCode: opts.packageCode,
+      labels: { en: `${opts.typeLocal}` },
+      iriLocal: `rel-${opts.typeLocal.toLowerCase()}-${Date.now().toString(36)}`,
+    });
+
+    await this.kc.createStatement({
+      packageCode: opts.packageCode,
+      subject: rel.data.id,
+      property: snap.instanceOfProperty,
+      value: { type: "EntityReference", entityId: typeIri },
+      upsert: true,
+    });
+
+    await this.kc.createStatement({
+      packageCode: opts.packageCode,
+      subject: rel.data.id,
+      property: snap.relSource,
+      value: { type: "EntityReference", entityId: opts.sourceId },
+      upsert: true,
+    });
+
+    await this.kc.createStatement({
+      packageCode: opts.packageCode,
+      subject: rel.data.id,
+      property: snap.relTarget,
+      value: { type: "EntityReference", entityId: opts.targetId },
+      upsert: true,
+    });
+
+    for (const [local, value] of Object.entries(opts.props || {})) {
+      const propIri = this.schema.tryPropertyIri(local);
+      if (!propIri) continue;
+      await this.kc.createStatement({
+        packageCode: opts.packageCode,
+        subject: rel.data.id,
+        property: propIri,
+        value: { type: "String", string: value },
+        upsert: true,
+      });
+    }
+
+    return rel.data;
   }
 
   async updateLabels(

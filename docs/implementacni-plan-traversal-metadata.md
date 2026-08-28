@@ -345,6 +345,8 @@ Alternativně záložka v Packages u aktivního org balíčku — doporučení: 
 
 ### 6.2 Obrazovky
 
+> **Uživatelský postup z UI** (krok za krokem, včetně ChangeSet workflow): [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md) § 3.4.
+
 #### A. Přehled profilu (`NavigationConfigPage`)
 
 - Aktivní org, odkazovaný profil (IRI, package, verze)

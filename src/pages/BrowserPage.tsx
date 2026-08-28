@@ -26,7 +26,7 @@ import {
   TraversalEngine,
 } from "@/domain/traversal";
 import { useApp } from "@/state/AppContext";
-import { AddDialog } from "@/components/AddDialog";
+import { AddDialog, type AddDialogSubmit } from "@/components/AddDialog";
 import { FlowBar } from "@/components/FlowBar";
 import { Inspector } from "@/components/Inspector";
 import { SpawnFlowDialog } from "@/components/SpawnFlowDialog";
@@ -461,32 +461,41 @@ export function BrowserPage() {
     setInspectTarget({ entityId, classLocal });
   }
 
-  async function handleAdd(
-    action: AddActionDef,
-    name: string,
-    description: string,
-    extras: Record<string, string>,
-  ) {
+  async function handleAddSubmit(payload: AddDialogSubmit) {
     if (!addStage) return;
     const targetFlow = flows.find((f) => f.id === addStage.flowId);
     if (!targetFlow) return;
     const parentColIndex = addStage.colIndex - 1;
     const selectedId =
-      parentColIndex >= 0
-        ? targetFlow.focus[parentColIndex]?.entityId
-        : undefined;
+      parentColIndex >= 0 ? targetFlow.focus[parentColIndex]?.entityId : undefined;
 
-    const result = await model.createElement({
-      packageCode: orgPackage,
-      name,
-      description,
-      action,
-      selectedId,
-      extraProps: extras,
-      flowLabel: extras.flowLabel,
-    });
+    const extras = payload.extras;
+    let changeSet;
 
-    pushChangeSet(result.changeSet);
+    if (payload.mode === "link") {
+      const result = await model.linkElement({
+        packageCode: orgPackage,
+        action: payload.action,
+        existingEntityId: payload.entityId,
+        selectedId,
+        extraProps: extras,
+        flowLabel: extras.flowLabel,
+      });
+      changeSet = result.changeSet;
+    } else {
+      const result = await model.createElement({
+        packageCode: orgPackage,
+        name: payload.name,
+        description: payload.description,
+        action: payload.action,
+        selectedId,
+        extraProps: extras,
+        flowLabel: extras.flowLabel,
+      });
+      changeSet = result.changeSet;
+    }
+
+    pushChangeSet(changeSet);
 
     if (addStage.colIndex === 0) {
       await refreshFlowRoot(targetFlow.id);
@@ -500,6 +509,24 @@ export function BrowserPage() {
   const addActions = addStage
     ? addTemplate.addActions.filter((a) => a.stage === addStage.stageCode)
     : [];
+  const addStageDef = addStage
+    ? addTemplate.stages.find((s) => s.code === addStage.stageCode)
+    : undefined;
+  const addParentColIndex = addStage ? addStage.colIndex - 1 : -1;
+  const addContextLabel =
+    addFlow && addParentColIndex >= 0
+      ? addFlow.focus[addParentColIndex]?.label
+      : undefined;
+  const addLinkedEntityIds =
+    addFlow && addStage ? addFlow.columns[addStage.colIndex]?.items.map((i) => i.entity.id) : [];
+
+  const searchAddCandidates = useCallback(
+    (action: AddActionDef, query: string) => {
+      if (!addStageDef) return Promise.resolve([]);
+      return engine.searchStageCandidates(orgPackage, addStageDef, action, query);
+    },
+    [engine, orgPackage, addStageDef],
+  );
 
   const inspectorEntity = peekEntity ?? activeFlow?.selected ?? null;
   const inspectorClassLocal = peekEntity?.classLocal ?? activeFlow?.selected?.classLocal;
@@ -578,15 +605,15 @@ export function BrowserPage() {
         />
       </div>
 
-      {addStage && addActions.length > 0 && (
+      {addStage && addActions.length > 0 && addStageDef && (
         <AddDialog
-          stageLabel={
-            addTemplate.stages.find((s) => s.code === addStage.stageCode)?.labelCs ||
-            addStage.stageCode
-          }
+          stageLabel={addStageDef.labelCs}
           actions={addActions}
+          contextLabel={addContextLabel}
+          linkedEntityIds={addLinkedEntityIds}
+          onSearch={searchAddCandidates}
           onClose={() => setAddStage(null)}
-          onSubmit={handleAdd}
+          onSubmit={handleAddSubmit}
         />
       )}
 

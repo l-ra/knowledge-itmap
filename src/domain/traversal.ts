@@ -1,6 +1,7 @@
 import { getKc, type KcClient } from "../kc/client";
 import { entityLabel, getSchema, type SchemaResolver } from "../kc/schema";
 import type { Entity, Statement } from "../kc/types";
+import type { AddActionDef } from "./templates";
 import {
   type StageDef,
   type TraversalTemplate,
@@ -72,6 +73,53 @@ export class TraversalEngine {
     const stage = template.stages[0];
     const items = await this.loadStageRoots(packageCode, stage);
     return { stage, items, loading: false };
+  }
+
+  /** Candidates for "link existing" in add dialog — same class/filter rules as the column. */
+  async searchStageCandidates(
+    packageCode: string,
+    stage: StageDef,
+    action: AddActionDef,
+    query: string,
+    limit = 15,
+  ): Promise<ColumnItem[]> {
+    const snap = this.schema.snapshot;
+    const classLocal = action.createsClass;
+    const classIri = snap.classesByLocal.get(classLocal)?.id;
+    if (!classIri) return [];
+
+    const page = await this.kc.listEntities({
+      package: packageCode,
+      instanceOf: classIri,
+      includeSubclasses: true,
+      q: query.trim() || undefined,
+      limit: 200,
+    });
+
+    const needle = query.trim().toLocaleLowerCase("cs");
+    const items: ColumnItem[] = [];
+
+    for (const entity of page.items) {
+      const actorKind = await this.readStringProp(entity.id, "actorKind");
+      if (stage.actorKinds && classLocal === "BusinessActor") {
+        if (!actorKind || !stage.actorKinds.includes(actorKind as never)) continue;
+      }
+      if (action.defaults?.actorKind && classLocal === "BusinessActor") {
+        if (actorKind !== action.defaults.actorKind) continue;
+      }
+      if (needle) {
+        const label = entityLabel(entity).toLocaleLowerCase("cs");
+        if (!label.includes(needle)) continue;
+      }
+      items.push({
+        entity,
+        classLocal,
+        domainLabel: domainLabelFor(classLocal, actorKind),
+      });
+    }
+
+    items.sort((a, b) => entityLabel(a.entity).localeCompare(entityLabel(b.entity), "cs"));
+    return items.slice(0, limit);
   }
 
   async loadNextColumn(

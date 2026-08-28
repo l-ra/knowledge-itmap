@@ -47,7 +47,7 @@ actorKind, associationKind…    UiNavigationProfile (2.3.0)       TraversalEngi
 
 Topologie navigace je v KC jako policy data (`UiNavigationProfile`, `UiTraversalTemplate`, `UiStage`, `UiTransition`, `UiAddAction`) v balíčku `archimate-lite` ≥ 2.3.0. Výchozí seed odpovídá dříve hardcoded šablonám v `src/domain/templates.ts` (`FALLBACK_TEMPLATES`).
 
-Org package může připojit vlastní profil přes property `orgNavigationProfile` na package-root. Editace: stránka **Navigace** (`/navigation`).
+Org package může připojit vlastní profil přes property `orgNavigationProfile` na package-root. Editace: stránka **Navigace** (`/navigation`) — viz [§ 3.4](#34-vlastní-org-profil--postup-z-ui).
 
 ### 3.1 Traversal templates (3 výchozí)
 
@@ -105,6 +105,117 @@ Každá šablona (`TraversalTemplate`) definuje tři části:
 - České domain labely (`domainLabelFor`) — „Osoba“, „Organizační jednotka“, …
 - Vykreslení sloupců, focus path, Inspector (`BrowserPage`, `Inspector`)
 - Výběr template v dropdownu na stránce Browser
+
+### 3.4 Vlastní org profil — postup z UI
+
+Stránka **Navigace** (`/navigation`, položka v horní liště) slouží k připojení org profilu a k úpravě šablon. Implementace: `NavigationConfigPage` + `NavigationProfileService`.
+
+#### Předpoklady
+
+| Podmínka | Proč |
+|----------|------|
+| Připojený KC a načtené schema | Bez `archimate-lite` ≥ 2.3.0 chybí `Ui*` třídy a systémový seed |
+| Aktivní **org package** (Settings) | Profil se váže na package-root vybrané organizace |
+| **Manuální ChangeSet** v horní liště | Všechny zápisy (duplikace, připojení, úpravy stages/…) jdou přes ChangeSet; bez něj je stránka jen pro čtení |
+
+#### Přehled profilu (horní sekce stránky)
+
+Zobrazuje:
+
+- **Systémový profil** — seed z `archimate-lite` (`isSystemDefault = true`), jen pro čtení
+- **Org profil** — entita `UiNavigationProfile` odkazovaná z package-root přes `orgNavigationProfile`, nebo „— (výchozí systémový)“ pokud odkaz chybí
+
+Tlačítka:
+
+| Akce | Efekt | ChangeSet |
+|------|-------|-----------|
+| **Použít výchozí** | Odebere `orgNavigationProfile` z package-root; Browser používá jen systémový profil | ano |
+| **Duplikovat výchozí do org** | Vytvoří kopii systémového profilu v org balíčku (všechny 3 šablony + stages/transitions/add actions), nastaví `parentProfile` na systémový profil a automaticky ho připojí k org | ano, vyžaduje ChangeSet |
+| **Připojit existující profil** | Výběr libovolného `UiNavigationProfile` z KC (dropdown) + **Připojit** — profil může být v jiném balíčku | ano, vyžaduje ChangeSet |
+
+Duplikace vytvoří entitu s kódem `{org-package}-nav` (např. `org-demo-nav`) a popiskem `{název org} — navigace`.
+
+#### Seznam šablon
+
+Pod přehledem profilu jsou všechny **resolved** šablony (merge systém + org):
+
+| Badge | Význam |
+|-------|--------|
+| `systém` | Šablona pochází jen ze systémového profilu |
+| `org` | Šablona je definovaná v org profilu |
+| `override` | Org šablona má stejný `templateCode` jako systémová a přepisuje ji |
+
+U každé šablony:
+
+- klik na název → otevře **editor** dole na stránce
+- **Browser** → přepne aktivní template v Browseru a otevře `/` pro rychlý smoke test
+
+#### Editor šablony
+
+Po výběru šablony se zobrazí editor se záložkami **Stages**, **Transitions**, **Add actions**.
+
+**Důležité:** editovat lze jen šablony, jejichž `packageCode` odpovídá aktivnímu org balíčku. U systémových šablon se zobrazí upozornění *„Systémová šablona je jen pro čtení. Duplikujte profil do org pro úpravy.“*
+
+##### Stages (sloupce)
+
+Seznam stages vlevo, formulář vpravo. Pole:
+
+| Pole UI | KC property | Popis |
+|---------|-------------|-------|
+| `stageCode` | `stageCode` | Identifikátor stage |
+| `columnLabelCs` | `columnLabelCs` | Název sloupce v Browseru |
+| `stageOrder` | `stageOrder` | Pořadí sloupce |
+| `targetClasses` | `targetClasses` | Multi-select ArchiMate tříd ve sloupci |
+| `actorKinds` | `actorKinds` | CSV filtr pro `BusinessActor` (`department,person,external`) |
+
+Akce: **Uložit stage**, **Smazat**, **Nový** (prázdný formulář pro nový stage).
+
+##### Transitions (přechody)
+
+Tabulka přechodů (filtrovaná dle vybraného stage v panelu Stages) + formulář:
+
+| Pole UI | KC property | Popis |
+|---------|-------------|-------|
+| `fromStage` / `toStage` | `fromStage`, `toStage` | Odkazy na `UiStage` |
+| `relationshipClass` | `relationshipClass` | Typ vztahu (`Assignment`, `Serving`, …) |
+| `traverseDirection` | `traverseDirection` | `model` nebo `inverse` |
+| `uiEdgeLabelCs` | `uiEdgeLabelCs` | Popisek hrany v UI |
+| `requireProperty` | `requireProperty` | Volitelný JSON filtr na property vztahu |
+
+##### Add actions
+
+Seznam akcí menu „+ Add“ pro vybraný stage + formulář (`actionCode`, `domainLabelCs`, `createsClass`, `derivesRelationship`, …).
+
+#### Validace
+
+Sekce **Validace** zobrazí varování/chyby z `NavigationProfileService.validateProfile` (např. neplatný vztah, chybějící stage). Prohlížet lze i bez ChangeSetu.
+
+#### Typický workflow: vlastní navigace pro organizaci
+
+```text
+1. Settings → vybrat org package
+2. Horní lišta → zapnout manuální ChangeSet
+3. Navigace (/navigation) → „Duplikovat výchozí do org“
+4. Kliknout na šablonu (badge „org“ nebo „override“)
+5. Upravit stages / transitions / add actions → Uložit
+6. „Browser“ u šablony → ověřit chování
+7. ChangeSet commitnout do KC
+```
+
+#### Merge systémového a org profilu
+
+IT Map při načtení sloučí oba profily (`NavigationProfileResolver`):
+
+1. Načte systémový profil (`isSystemDefault = true` v `archimate-lite`).
+2. Pokud package-root má `orgNavigationProfile`, načte org profil (libovolný KC balíček).
+3. Šablony se sloučí podle `templateCode` — org přepíše systém u stejného kódu.
+4. Org profil může deklarovat `parentProfile` → dědí chybějící šablony ze systému (viz příklad v [`implementacni-plan-traversal-metadata.md`](implementacni-plan-traversal-metadata.md) § 8).
+
+Po každé změně profilu aplikace invaliduje cache a znovu načte resolved profil (`reloadNavigationProfile`).
+
+#### Alternativa: profil přímo v KC (bez UI editoru)
+
+Stejný výsledek lze dosáhnout ručním vytvořením entit `UiNavigationProfile` + podřízených `UiTraversalTemplate` / `UiStage` / … v KC a připojením přes `orgNavigationProfile` na package-root. UI pak slouží jen k připojení existujícího profilu nebo k editaci již vytvořených šablon.
 
 ---
 
@@ -169,11 +280,18 @@ Traversal **čte** tyto properties z instancí v org package:
 | `accessMode` | Default při vytváření `Access` vztahu |
 | `ownership`, `networkKind`, `networkRole` | Defaults při Add, zobrazení v Inspectoru |
 
-### 5.3 Co v metadatech zatím není
+### 5.3 Navigační profil v metadatech (`archimate-lite` ≥ 2.3.0)
 
-Navigační profil (`UiNavigationProfile`, `UiStage`, `UiTransition`, …) je zatím jen **návrh** — viz [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md), plánované pro archimate-lite 2.2.0.
+Traversal topologie je policy data v KC — třídy `UiNavigationProfile`, `UiTraversalTemplate`, `UiStage`, `UiTransition`, `UiAddAction`. Specifikace datového modelu: [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md); implementační detaily: [`implementacni-plan-traversal-metadata.md`](implementacni-plan-traversal-metadata.md).
 
-Traversal templates se z KC **nenačítají**. Property `uiStageGroup` na třídách není implementováno.
+| Co | Kde |
+|----|-----|
+| Výchozí profil (3 šablony) | Seed v balíčku `archimate-lite`, `isSystemDefault = true` |
+| Org vlastní profil | Instance `UiNavigationProfile` v org (nebo jiném) balíčku |
+| Vazba org → profil | Property `orgNavigationProfile` na package-root (`kc-base:Package`) |
+| Editace z UI | Stránka `/navigation` — viz [§ 3.4](#34-vlastní-org-profil--postup-z-ui) |
+
+Property `uiStageGroup` na ArchiMate třídách (varianta A z návrhu) **není** implementováno.
 
 ---
 
@@ -186,22 +304,27 @@ Traversal templates se z KC **nenačítají**. Property `uiStageGroup` na tříd
 | **Traversal template** | Browser → dropdown „Traversal“ | Vybere úhel pohledu (business / app impact / infra) |
 | **Org package** | Settings | Který KC balíček se prochází |
 | **Auth KC** | Settings | Připojení ke Knowledge Core |
+| **Navigační profil** | Navigace (`/navigation`) | Připojení org profilu, editace stages / transitions / add actions |
+| **Výchozí / org profil** | Navigace → přehled profilu | Duplikace, připojení existujícího, návrat k systémovému |
+
+Podrobný postup pro vlastní profil: [§ 3.4](#34-vlastní-org-profil--postup-z-ui).
 
 ### 6.2 V datech (Knowledge Core)
 
 | Nastavení | Kde | Efekt |
 |-----------|-----|-------|
+| `Ui*` traversal profil | `archimate-lite` seed + volitelně org package | Pořadí sloupců, přechody, Add menu |
+| `orgNavigationProfile` | package-root aktivního org | Který profil platí pro organizaci |
 | `actorKind` na BusinessActor | instance | Do kterého sloupce actor spadne |
 | Vztahy mezi entitami | instance | Co se ukáže v dalším sloupci |
 | Enum hodnoty | archimate-lite catalog | Možnosti v Add dialogu / Inspectoru |
 
 ### 6.3 Pouze úpravou kódu
 
-- Pořadí a sestava sloupců
-- Přechody (který vztah, jakým směrem)
-- Add menu a odvozené vztahy
-- Nový traversal template
-- České popisky hran a typů
+- České domain labely entit (`domainLabelFor`) mimo popisky v profilu
+- Vykreslení sloupce, focus path, layout Browseru
+- Algoritmus `TraversalEngine` (skip prázdných sloupců, progressive disclosure)
+- Vestavěný fallback `FALLBACK_TEMPLATES` — použije se, pokud KC profil chybí
 
 ---
 
@@ -237,9 +360,13 @@ sequenceDiagram
 
 Plná varianta B z [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md) je implementována v `archimate-lite` 2.3.0 a IT Map:
 
-- `NavigationProfileResolver` — načtení a merge systémového + org profilu
-- `NavigationProfileService` — CRUD pravidel přes ChangeSet
-- `/navigation` — UI editor stages / transitions / add actions
+| Modul | Soubor | Účel |
+|-------|--------|------|
+| Resolver | `src/domain/navigationProfile.ts` | Načtení a merge systémového + org profilu |
+| Loader | `src/domain/navigationProfileLoader.ts` | KC dotazy na `Ui*` entity |
+| Mapper | `src/domain/navigationProfileMapper.ts` | `Ui*` → `TraversalTemplate` |
+| Service | `src/domain/navigationProfileService.ts` | CRUD pravidel přes ChangeSet |
+| UI | `src/pages/NavigationConfigPage.tsx` | Stránka `/navigation` — viz [§ 3.4](#34-vlastní-org-profil--postup-z-ui) |
 
 Vestavěný fallback v `FALLBACK_TEMPLATES` zůstává pro offline dev, pokud KC profil chybí.
 

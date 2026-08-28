@@ -774,6 +774,103 @@ a {
   margin-top: 1rem;
 }
 
+.add-dialog-context {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.add-dialog-search {
+  position: relative;
+}
+
+.add-dialog-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  max-height: 220px;
+  overflow: auto;
+  z-index: 10;
+}
+
+.add-dialog-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.add-dialog-suggestion:hover:not(.disabled):not(.muted) {
+  background: var(--bg-hover);
+}
+
+.add-dialog-suggestion.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.add-dialog-suggestion.muted {
+  cursor: default;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.add-dialog-suggestion.create-new {
+  color: var(--accent);
+  font-weight: 500;
+  border-top: 1px solid var(--border);
+}
+
+.add-dialog-suggestion .name {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-dialog-suggestion .meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.add-dialog-suggestion .badge {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.add-dialog-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.link-btn {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
 .page {
   padding: 1rem 1.25rem;
   overflow: auto;
