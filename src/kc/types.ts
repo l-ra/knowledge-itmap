@@ -68,24 +68,41 @@ export interface Statement {
   property: string;
   value: StatementValue;
   status?: string;
+  revisionNo?: number;
   packageCode?: string;
   qualifiers?: Array<{ property: string; value: StatementValue }>;
   validFrom?: string | null;
   validTo?: string | null;
 }
 
+export type ChangeSetStatus = "open" | "committed" | "cancelled";
+
+export interface ChangeSetClaim {
+  objectType: string;
+  objectId?: string;
+  canonicalIri?: string;
+  baseRevisionNo?: number;
+  opKind?: string;
+}
+
 export interface ChangeSet {
   id: string;
   canonicalId?: string;
+  displayId?: string;
   actor?: string;
   operationType?: string;
+  status?: ChangeSetStatus;
+  comment?: string;
+  openedAt?: string;
   committedAt?: string;
+  itemCount?: number;
   items?: Array<{
     objectType: string;
     objectId?: string;
     publicId?: string;
     op: string;
   }>;
+  claims?: ChangeSetClaim[];
 }
 
 export interface WriteResponse<T> {
@@ -107,8 +124,17 @@ export interface PackageInfo {
   code: string;
   lifecycle: string;
   iriBase?: string;
+  /** Synced with package-root entity labels (class Package). */
   labels: LangMap;
+  /** Read-through from package-root entity (GET /v1/packages/{code}). */
+  descriptions?: LangMap;
+  /** publicId of package-root entity (= iriBase); created automatically with iriBase. */
+  rootEntityId?: string;
   dependencies?: Array<{ dependsOnCode: string; versionRange: string }>;
+  latestReleaseVersion?: string;
+  modifiedAfterRelease?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface PackageRelease {

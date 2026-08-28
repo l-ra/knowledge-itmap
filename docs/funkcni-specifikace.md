@@ -5,6 +5,7 @@
 **Stav:** Draft  
 
 **Související dokumenty:**
+- [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md) — popis traversal templates, TraversalEngine a hranice kód vs. metadata
 - [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) — přesný checklist rozšíření KC (včetně network/flow)
 - [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md) — návrh UI konfigurační vrstvy (k diskusi)
 

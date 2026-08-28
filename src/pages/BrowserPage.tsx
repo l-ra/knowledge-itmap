@@ -20,7 +20,7 @@ import { AddDialog } from "@/components/AddDialog";
 import { Inspector } from "@/components/Inspector";
 
 export function BrowserPage() {
-  const { ready, error, orgPackage, pushChangeSet } = useApp();
+  const { ready, error, orgPackage, orgPackageLabel, pushChangeSet, graphEpoch } = useApp();
   const [templateCode, setTemplateCode] = useState("business-exploration");
   const [columns, setColumns] = useState<ColumnState[]>([]);
   const [focus, setFocus] = useState<FocusStep[]>([]);
@@ -56,7 +56,7 @@ export function BrowserPage() {
 
   useEffect(() => {
     void refreshRoot();
-  }, [refreshRoot]);
+  }, [refreshRoot, graphEpoch]);
 
   async function selectItem(colIndex: number, item: ColumnItem) {
     const step: FocusStep = {
@@ -128,7 +128,7 @@ export function BrowserPage() {
       flowLabel: extras.flowLabel,
     });
 
-    pushChangeSet(result.changeSets[result.changeSets.length - 1] || null);
+    pushChangeSet(result.changeSet);
 
     if (focus.length === 0) {
       await refreshRoot();
@@ -142,7 +142,7 @@ export function BrowserPage() {
     : [];
 
   return (
-    <>
+    <div className="browse-page">
       {(error || !ready) && (
         <div className={`status-banner ${error ? "error" : ""}`}>
           {error
@@ -152,32 +152,21 @@ export function BrowserPage() {
       )}
 
       <div className="focus-path">
-        <span>Focus:</span>
-        <button type="button" onClick={() => void refreshRoot()}>
-          {orgPackage}
-        </button>
-        {focus.map((f, i) => (
-          <span key={f.entityId}>
-            <span className="sep">›</span>
-            <button type="button" onClick={() => jumpFocus(i)}>
-              {f.label}
-            </button>
-          </span>
-        ))}
-        {loading && <span className="empty">…</span>}
-      </div>
-
-      <div style={{ padding: "0.4rem 1rem", display: "flex", gap: "0.75rem", alignItems: "center" }}>
-        <label style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-          Traversal{" "}
-          <select value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
-            {TEMPLATES.map((t) => (
-              <option key={t.code} value={t.code}>
-                {t.labelCs}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="focus-path-inner">
+          <span>Focus:</span>
+          <button type="button" onClick={() => void refreshRoot()} title={orgPackage}>
+            {orgPackageLabel}
+          </button>
+          {focus.map((f, i) => (
+            <span key={f.entityId}>
+              <span className="sep">›</span>
+              <button type="button" onClick={() => jumpFocus(i)}>
+                {f.label}
+              </button>
+            </span>
+          ))}
+          {loading && <span className="loading-dot">…</span>}
+        </span>
       </div>
 
       <div className="main-split">
@@ -233,6 +222,19 @@ export function BrowserPage() {
         />
       </div>
 
+      <div className="traversal-bar">
+        <label>
+          Traversal{" "}
+          <select value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
+            {TEMPLATES.map((t) => (
+              <option key={t.code} value={t.code}>
+                {t.labelCs}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       {addStage && addActions.length > 0 && (
         <AddDialog
           stageLabel={template.stages.find((s) => s.code === addStage)?.labelCs || addStage}
@@ -241,6 +243,6 @@ export function BrowserPage() {
           onSubmit={handleAdd}
         />
       )}
-    </>
+    </div>
   );
 }

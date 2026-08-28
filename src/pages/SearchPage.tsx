@@ -2,8 +2,10 @@ import { useState, type FormEvent } from "react";
 import { getKc } from "@/kc/client";
 import { entityLabel } from "@/kc/schema";
 import type { Entity } from "@/kc/types";
+import { useApp } from "@/state/AppContext";
 
 export function SearchPage() {
+  const { packageDisplayName } = useApp();
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Entity[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +24,9 @@ export function SearchPage() {
   return (
     <div className="page">
       <h2>Search</h2>
+      <p className="empty" style={{ textAlign: "left", marginTop: 0 }}>
+        Full-text hledá jen v committed datech — rozpracované open ChangeSety ve výsledcích nejsou.
+      </p>
       <form onSubmit={(e) => void run(e)} style={{ display: "flex", gap: "0.5rem" }}>
         <input
           style={{ flex: 1 }}
@@ -46,7 +51,7 @@ export function SearchPage() {
           {items.map((it) => (
             <tr key={it.id}>
               <td>{entityLabel(it)}</td>
-              <td>{it.packageCode}</td>
+              <td title={it.packageCode}>{it.packageCode ? packageDisplayName(it.packageCode) : ""}</td>
               <td className="mono">{it.id}</td>
             </tr>
           ))}

@@ -326,4 +326,11 @@ export class TraversalEngine {
     const res = await this.kc.getStatements(entityId);
     return res.items;
   }
+
+  async loadPropertyStatements(entityId: string, propLocal: string): Promise<Statement[]> {
+    const propIri = this.schema.tryPropertyIri(propLocal);
+    if (!propIri) return [];
+    const res = await this.kc.getStatements(entityId, propIri);
+    return res.items;
+  }
 }

@@ -30,6 +30,16 @@ function label(e: Entity, _lang = "en"): string {
   return e.labels?.cs || e.labels?.en || e.iriLocal || e.id;
 }
 
+/** Display name for a package: root-entity labels, else package code. */
+function packageLabel(
+  pkg: { code: string; labels?: Record<string, string> } | null | undefined,
+  fallbackCode?: string,
+): string {
+  const code = pkg?.code || fallbackCode || "";
+  if (!pkg?.labels) return code;
+  return pkg.labels.cs || pkg.labels.en || Object.values(pkg.labels).find((v) => v?.trim()) || code;
+}
+
 export class SchemaResolver {
   private snap: SchemaSnapshot | null = null;
 
@@ -267,4 +277,4 @@ export function getSchema(): SchemaResolver {
   return schemaSingleton;
 }
 
-export { label as entityLabel };
+export { label as entityLabel, packageLabel };

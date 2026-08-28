@@ -1,22 +1,39 @@
 import { useEffect, useState } from "react";
 import { getKc } from "@/kc/client";
+import { packageLabel } from "@/kc/schema";
 import type { PackageInfo, PackageRelease } from "@/kc/types";
 import { ModelService } from "@/domain/modelService";
 import { useApp } from "@/state/AppContext";
 
 export function PackagesPage() {
-  const { orgPackage, setOrgPackage, pushChangeSet, reloadSchema } = useApp();
-  const [packages, setPackages] = useState<PackageInfo[]>([]);
+  const {
+    orgPackage,
+    orgPackageLabel,
+    setOrgPackage,
+    pushChangeSet,
+    reloadSchema,
+    reloadPackages,
+    packages,
+  } = useApp();
+  const [detail, setDetail] = useState<PackageInfo | null>(null);
   const [releases, setReleases] = useState<PackageRelease[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [newCode, setNewCode] = useState("org-demo");
+  const [newLabel, setNewLabel] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [iriPrefix, setIriPrefix] = useState("https://example.org/");
   const [relVersion, setRelVersion] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const previewIriBase = (() => {
+    const base = iriPrefix.replace(/\/+$/, "");
+    const code = newCode.trim();
+    return code ? `${base}/${code}/` : `${base}/`;
+  })();
+
   async function refresh() {
     try {
-      const res = await getKc().listPackages();
-      setPackages(res.items);
+      await reloadPackages();
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -27,22 +44,35 @@ export function PackagesPage() {
     void refresh();
   }, []);
 
-  async function loadReleases(code: string) {
+  async function loadDetail(code: string) {
     try {
+      const pkg = await getKc().getPackage(code);
+      setDetail(pkg);
       const res = await getKc().listReleases(code);
       setReleases(res.items);
-    } catch {
+    } catch (e) {
+      setDetail(null);
       setReleases([]);
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function ensureOrg() {
+    const code = newCode.trim();
+    if (!code) {
+      setError("Vyplňte code package (např. org-demo), ne celou URL.");
+      return;
+    }
     setBusy(true);
     try {
       const model = new ModelService();
-      await model.ensureOrgPackage(newCode);
-      setOrgPackage(newCode);
+      await model.ensureOrgPackage(code, iriPrefix.trim() || "https://example.org/", {
+        label: newLabel.trim() || undefined,
+        description: newDescription.trim() || undefined,
+      });
+      setOrgPackage(code);
       await refresh();
+      await loadDetail(code);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -71,7 +101,7 @@ export function PackagesPage() {
     try {
       const res = await getKc().publishRelease(code, relVersion);
       pushChangeSet(res.changeSet);
-      await loadReleases(code);
+      await loadDetail(code);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -87,14 +117,67 @@ export function PackagesPage() {
       <section style={{ marginBottom: "1.5rem" }}>
         <h3>Aktivní org package</h3>
         <p>
-          Aktuální: <strong>{orgPackage}</strong>
+          Aktuální: <strong>{orgPackageLabel}</strong>
+          {orgPackageLabel !== orgPackage && (
+            <span className="empty" style={{ marginLeft: "0.5rem" }}>
+              (<code>{orgPackage}</code>)
+            </span>
+          )}
         </p>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <input value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="org-demo" />
-          <button type="button" className="toolbar-btn primary" disabled={busy} onClick={() => void ensureOrg()}>
-            Vytvořit / použít org package
-          </button>
+        <div className="field">
+          <label htmlFor="pkg-code">Code package</label>
+          <input
+            id="pkg-code"
+            value={newCode}
+            onChange={(e) => setNewCode(e.target.value)}
+            placeholder="org-demo"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <p className="empty" style={{ textAlign: "left", marginTop: "0.35rem" }}>
+            Vyplňte jen <strong>code</strong> (např. <code>org-demo</code>), ne celou URL package.
+          </p>
         </div>
+        <div className="field">
+          <label htmlFor="pkg-label">Label (package-root)</label>
+          <input
+            id="pkg-label"
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="Org Demo"
+            autoComplete="off"
+          />
+          <p className="empty" style={{ textAlign: "left", marginTop: "0.35rem" }}>
+            Uloží se na root entitu třídy <code>Package</code>. Bez labelu se použije code.
+          </p>
+        </div>
+        <div className="field">
+          <label htmlFor="pkg-desc">Description (volitelné)</label>
+          <input
+            id="pkg-desc"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+            placeholder="Popis organizace / instance package"
+            autoComplete="off"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="pkg-iri-prefix">IRI base prefix</label>
+          <input
+            id="pkg-iri-prefix"
+            value={iriPrefix}
+            onChange={(e) => setIriPrefix(e.target.value)}
+            placeholder="https://example.org/"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <p className="empty" style={{ textAlign: "left", marginTop: "0.35rem" }}>
+            Výsledné <code>iriBase</code>: <code>{previewIriBase}</code> (= publicId package-root)
+          </p>
+        </div>
+        <button type="button" className="toolbar-btn primary" disabled={busy} onClick={() => void ensureOrg()}>
+          Vytvořit / použít org package
+        </button>
         <p className="empty" style={{ textAlign: "left" }}>
           Závislost: <code>archimate-lite ^2.1.0</code>
         </p>
@@ -121,62 +204,91 @@ export function PackagesPage() {
         <table className="table">
           <thead>
             <tr>
+              <th>Název</th>
               <th>Code</th>
               <th>Lifecycle</th>
-              <th>Labels</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {packages.map((p) => (
-              <tr key={p.code}>
-                <td className="mono">{p.code}</td>
-                <td>{p.lifecycle}</td>
-                <td>{p.labels?.cs || p.labels?.en}</td>
-                <td>
-                  <button type="button" className="toolbar-btn" onClick={() => setOrgPackage(p.code)}>
-                    Použít
-                  </button>{" "}
-                  <button type="button" className="toolbar-btn" onClick={() => void loadReleases(p.code)}>
-                    Releases
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {packages.map((p) => {
+              const name = packageLabel(p);
+              return (
+                <tr key={p.code}>
+                  <td>{name}</td>
+                  <td className="mono">{p.code}</td>
+                  <td>{p.lifecycle}</td>
+                  <td>
+                    <button type="button" className="toolbar-btn" onClick={() => setOrgPackage(p.code)}>
+                      Použít
+                    </button>{" "}
+                    <button type="button" className="toolbar-btn" onClick={() => void loadDetail(p.code)}>
+                      Detail
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </section>
 
-      {releases.length > 0 && (
+      {detail && (
         <section style={{ marginTop: "1rem" }}>
-          <h3>Releases</h3>
-          <ul>
-            {releases.map((r) => (
-              <li key={r.version}>
-                {r.version} {r.publishedAt ? `· ${r.publishedAt}` : ""}
-              </li>
-            ))}
-          </ul>
+          <h3>{packageLabel(detail)}</h3>
+          <p className="empty" style={{ textAlign: "left" }}>
+            <code>{detail.code}</code>
+            {detail.lifecycle ? ` · ${detail.lifecycle}` : ""}
+          </p>
+          {detail.descriptions && (detail.descriptions.cs || detail.descriptions.en) && (
+            <p>{detail.descriptions.cs || detail.descriptions.en}</p>
+          )}
+          {detail.rootEntityId && (
+            <p className="empty" style={{ textAlign: "left" }}>
+              Package-root: <code className="mono">{detail.rootEntityId}</code>
+            </p>
+          )}
+          {detail.iriBase && (
+            <p className="empty" style={{ textAlign: "left" }}>
+              iriBase: <code className="mono">{detail.iriBase}</code>
+            </p>
+          )}
+          {releases.length > 0 && (
+            <>
+              <h4>Releases</h4>
+              <ul>
+                {releases.map((r) => (
+                  <li key={r.version}>
+                    {r.version} {r.publishedAt ? `· ${r.publishedAt}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       )}
 
       <section style={{ marginTop: "1.5rem" }}>
         <h3>Publish release</h3>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div className="field" style={{ maxWidth: "16rem", display: "inline-block", marginRight: "0.5rem" }}>
+          <label htmlFor="rel-version">Verze</label>
           <input
+            id="rel-version"
             value={relVersion}
             onChange={(e) => setRelVersion(e.target.value)}
             placeholder="1.0.0"
+            autoComplete="off"
+            spellCheck={false}
           />
-          <button
-            type="button"
-            className="toolbar-btn primary"
-            disabled={busy}
-            onClick={() => void publish(orgPackage)}
-          >
-            Publish {orgPackage}
-          </button>
         </div>
+        <button
+          type="button"
+          className="toolbar-btn primary"
+          disabled={busy}
+          onClick={() => void publish(orgPackage)}
+        >
+          Publish {orgPackageLabel}
+        </button>
       </section>
     </div>
   );

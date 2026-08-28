@@ -3,6 +3,8 @@
 **Stav:** Návrh k diskusi (před rozhodnutím o zařazení do 2.1.0 nebo 2.2.0)  
 **Kontext:** IT Map — column browser, traversal templates, odvozování vztahů
 
+**Související:** [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md) — popis aktuální implementace procházení grafem
+
 ---
 
 ## 1. Otázka

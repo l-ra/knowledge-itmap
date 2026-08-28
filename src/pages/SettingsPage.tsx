@@ -4,7 +4,8 @@ import { getKc, type AuthConfig } from "@/kc/client";
 import { useApp } from "@/state/AppContext";
 
 export function SettingsPage() {
-  const { auth, setAuth, orgPackage, setOrgPackage, reloadSchema, ready, error } = useApp();
+  const { auth, setAuth, orgPackage, orgPackageLabel, setOrgPackage, reloadSchema, ready, error } =
+    useApp();
   const [form, setForm] = useState<AuthConfig>(auth);
   const [pkg, setPkg] = useState(orgPackage);
   const [me, setMe] = useState<string>("");
@@ -86,8 +87,13 @@ export function SettingsPage() {
       )}
 
       <div className="field">
-        <label>Org package</label>
+        <label>Org package (code)</label>
         <input value={pkg} onChange={(e) => setPkg(e.target.value)} />
+        {orgPackageLabel && orgPackageLabel !== orgPackage && (
+          <p className="empty" style={{ textAlign: "left", marginTop: "0.35rem" }}>
+            Zobrazovaný název: <strong>{orgPackageLabel}</strong>
+          </p>
+        )}
       </div>
 
       <p className="empty" style={{ textAlign: "left" }}>
