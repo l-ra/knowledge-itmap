@@ -31,6 +31,52 @@ export interface FocusStep {
   classLocal: string;
 }
 
+/** Per-flow column visibility overrides (user skipped stages in the browser). */
+export interface TraversalOptions {
+  hiddenStages?: readonly string[];
+}
+
+export interface SkipTarget {
+  stageCode: string;
+  labelCs: string;
+}
+
+/** Transitions applicable for navigating from `fromStageCode` to `toStageCode`. */
+export function findApplicableTransitions(
+  template: TraversalTemplate,
+  fromStageCode: string,
+  toStageCode: string,
+  selectedClassLocal: string,
+): TransitionDef[] {
+  const direct = template.transitions.filter(
+    (t) => t.from === fromStageCode && t.to === toStageCode,
+  );
+  if (direct.length > 0) return direct;
+
+  const allTo = template.transitions.filter((t) => t.to === toStageCode);
+  return allTo.filter((t) => {
+    const fromStage = template.stages.find((s) => s.code === t.from);
+    return fromStage?.classes.includes(selectedClassLocal as never);
+  });
+}
+
+/** Hidden stages strictly between two visible stages in template order. */
+export function hiddenStagesBetween(
+  template: TraversalTemplate,
+  leftStageCode: string,
+  rightStageCode: string,
+  hiddenStages: readonly string[],
+): StageDef[] {
+  const leftIdx = template.stages.findIndex((s) => s.code === leftStageCode);
+  const rightIdx = template.stages.findIndex((s) => s.code === rightStageCode);
+  if (leftIdx < 0 || rightIdx <= leftIdx) return [];
+
+  const hidden = new Set(hiddenStages);
+  return template.stages.filter(
+    (s, idx) => idx > leftIdx && idx < rightIdx && hidden.has(s.code),
+  );
+}
+
 export function domainLabelFor(
   classLocal: string,
   actorKind?: string,
@@ -128,28 +174,26 @@ export class TraversalEngine {
     selected: Entity,
     selectedClassLocal: string,
     fromStageCode: string,
+    options?: TraversalOptions,
   ): Promise<ColumnState | null> {
     const fromIdx = template.stages.findIndex((s) => s.code === fromStageCode);
     if (fromIdx < 0 || fromIdx >= template.stages.length - 1) return null;
 
-    // Find next stage that has a transition from current
+    const hidden = new Set(options?.hiddenStages ?? []);
+
     for (let i = fromIdx + 1; i < template.stages.length; i++) {
       const toStage = template.stages[i];
-      const transitions = template.transitions.filter(
-        (t) => t.from === fromStageCode && t.to === toStage.code,
-      );
-      // Also allow transitions from earlier stages that match selected class
-      const allTo = template.transitions.filter((t) => t.to === toStage.code);
-      const applicable =
-        transitions.length > 0
-          ? transitions
-          : allTo.filter((t) => {
-              const fromStage = template.stages.find((s) => s.code === t.from);
-              return fromStage?.classes.includes(selectedClassLocal as never);
-            });
+      if (hidden.has(toStage.code)) continue;
 
-      if (applicable.length === 0 && i === fromIdx + 1) {
-        // try walking with transitions that start from this stage to any later
+      const applicable = findApplicableTransitions(
+        template,
+        fromStageCode,
+        toStage.code,
+        selectedClassLocal,
+      );
+
+      if (applicable.length === 0) {
+        if (i === fromIdx + 1) continue;
         continue;
       }
 
@@ -158,15 +202,107 @@ export class TraversalEngine {
         selected,
         selectedClassLocal,
         toStage,
-        applicable.length ? applicable : transitions,
+        applicable,
       );
 
-      // Always return the immediate next stage even if empty (progressive disclosure)
-      if (i === fromIdx + 1 || items.length > 0) {
+      const isTemplateImmediateNext =
+        i === fromIdx + 1 ||
+        template.stages.slice(fromIdx + 1, i).every((s) => hidden.has(s.code));
+
+      // Progressive disclosure for first visible stage; later stages only when non-empty
+      if (isTemplateImmediateNext || items.length > 0) {
         return { stage: toStage, items, loading: false };
       }
     }
     return null;
+  }
+
+  /**
+   * Whether the user may hide `hideStageCode` when navigating from `fromStageCode`.
+   * Empty column: any direct shortcut to a later stage in template order.
+   * Non-empty column: shortcut target must have data in the graph.
+   */
+  async findSkipTarget(
+    packageCode: string,
+    template: TraversalTemplate,
+    fromStageCode: string,
+    hideStageCode: string,
+    selected: Entity,
+    selectedClassLocal: string,
+    hiddenStages: readonly string[],
+    hideColumnEmpty: boolean,
+  ): Promise<SkipTarget | null> {
+    const fromIdx = template.stages.findIndex((s) => s.code === fromStageCode);
+    const hideIdx = template.stages.findIndex((s) => s.code === hideStageCode);
+    if (fromIdx < 0 || hideIdx <= fromIdx) return null;
+    if (hiddenStages.includes(hideStageCode)) return null;
+
+    const hidden = new Set(hiddenStages);
+
+    for (let i = hideIdx + 1; i < template.stages.length; i++) {
+      const targetStage = template.stages[i];
+      if (hidden.has(targetStage.code)) continue;
+
+      const applicable = findApplicableTransitions(
+        template,
+        fromStageCode,
+        targetStage.code,
+        selectedClassLocal,
+      );
+      if (applicable.length === 0) continue;
+
+      if (hideColumnEmpty) {
+        return { stageCode: targetStage.code, labelCs: targetStage.labelCs };
+      }
+
+      const items = await this.collectViaTransitions(
+        packageCode,
+        selected,
+        selectedClassLocal,
+        targetStage,
+        applicable,
+      );
+      if (items.length > 0) {
+        return { stageCode: targetStage.code, labelCs: targetStage.labelCs };
+      }
+    }
+    return null;
+  }
+
+  /** Skip affordance per column index (key = colIndex, col 0 has none). */
+  async computeSkipOptions(
+    packageCode: string,
+    template: TraversalTemplate,
+    columns: ColumnState[],
+    focus: FocusStep[],
+    hiddenStages: readonly string[],
+  ): Promise<Map<number, SkipTarget>> {
+    const out = new Map<number, SkipTarget>();
+
+    for (let colIndex = 1; colIndex < columns.length; colIndex++) {
+      const focusStep = focus[colIndex - 1];
+      if (!focusStep) continue;
+
+      let entity: Entity;
+      try {
+        entity = await this.kc.getEntity(focusStep.entityId);
+      } catch {
+        continue;
+      }
+
+      const target = await this.findSkipTarget(
+        packageCode,
+        template,
+        focusStep.stageCode,
+        columns[colIndex].stage.code,
+        entity,
+        focusStep.classLocal,
+        hiddenStages,
+        columns[colIndex].items.length === 0,
+      );
+      if (target) out.set(colIndex, target);
+    }
+    return out;
   }
 
   /** Expand immediate next stages along the template path. */
@@ -174,23 +310,23 @@ export class TraversalEngine {
     packageCode: string,
     template: TraversalTemplate,
     focus: FocusStep[],
+    options?: TraversalOptions,
   ): Promise<ColumnState[]> {
     const columns: ColumnState[] = [];
 
-    // Root
     const root = await this.loadRootColumn(packageCode, template);
     columns.push(root);
 
     for (let i = 0; i < focus.length; i++) {
       const step = focus[i];
-      const fromStage = step.stageCode;
       const entity = await this.kc.getEntity(step.entityId);
       const next = await this.loadNextColumn(
         packageCode,
         template,
         entity,
         step.classLocal,
-        fromStage,
+        step.stageCode,
+        options,
       );
       if (!next) break;
       columns.push(next);

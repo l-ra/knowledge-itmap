@@ -22,6 +22,7 @@ export interface SerializedFlow {
   id: string;
   templateCode: string;
   focus: SerializedFocusStep[];
+  hiddenStages?: string[];
   collapsed?: boolean;
 }
 
@@ -69,6 +70,7 @@ function parseFlowParam(id: string, raw: string): SerializedFlow {
   const parts = raw.split(";");
   let templateCode = "business-exploration";
   const focus: SerializedFocusStep[] = [];
+  let hiddenStages: string[] = [];
 
   for (const part of parts) {
     if (part.startsWith("t:")) {
@@ -82,6 +84,12 @@ function parseFlowParam(id: string, raw: string): SerializedFlow {
           classLocal: decodeURIComponent(segments[2]),
         });
       }
+    } else if (part.startsWith("h:")) {
+      hiddenStages = part
+        .slice(2)
+        .split(",")
+        .filter(Boolean)
+        .map((s) => decodeURIComponent(s));
     } else if (part === "c") {
       /* collapsed flag handled below */
     }
@@ -91,6 +99,7 @@ function parseFlowParam(id: string, raw: string): SerializedFlow {
     id,
     templateCode,
     focus,
+    hiddenStages,
     collapsed: raw.includes(";c"),
   };
 }
@@ -110,6 +119,9 @@ export function serializeFlowToParam(flow: NavigationFlow): string {
     parts.push(
       `e:${encodeURIComponent(step.entityId)}/${encodeURIComponent(step.stageCode)}/${encodeURIComponent(step.classLocal)}`,
     );
+  }
+  if (flow.hiddenStages.length > 0) {
+    parts.push(`h:${flow.hiddenStages.map(encodeURIComponent).join(",")}`);
   }
   if (flow.collapsed) parts.push("c");
   return parts.join(";");
@@ -174,7 +186,9 @@ export async function hydrateBrowserSession(
     const template = resolveTemplate(sf.templateCode);
     let columns: ColumnState[];
     try {
-      columns = await engine.expandPath(orgPackage, template, focus);
+      columns = await engine.expandPath(orgPackage, template, focus, {
+        hiddenStages: sf.hiddenStages ?? [],
+      });
     } catch {
       columns = [];
     }
@@ -195,6 +209,7 @@ export async function hydrateBrowserSession(
       columns,
       selected,
       collapsed: sf.collapsed ?? false,
+      hiddenStages: sf.hiddenStages ?? [],
     });
   }
 

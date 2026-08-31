@@ -25,6 +25,8 @@ export interface NavigationFlow {
   columns: ColumnState[];
   selected: { entity: Entity; classLocal: string } | null;
   collapsed: boolean;
+  /** Stage codes temporarily hidden in the browser (persisted in URL). */
+  hiddenStages: string[];
   spawnedFrom?: FlowSpawnOrigin;
 }
 
@@ -53,6 +55,7 @@ export function createEmptyFlow(templateCode: string, id?: string): NavigationFl
     columns: [],
     selected: null,
     collapsed: false,
+    hiddenStages: [],
   };
 }
 

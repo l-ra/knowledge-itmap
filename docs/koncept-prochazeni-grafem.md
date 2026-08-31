@@ -97,8 +97,8 @@ Každá šablona (`TraversalTemplate`) definuje tři části:
 1. **Kořen** — první stage template; načte entity daných tříd z aktivního org package.
 2. **Další sloupec** — najde transitions z aktuálního stage, projde vztahy vybrané entity, filtruje cílové třídy podle `toStage.classes`.
 3. **Směr průchodu** — `model`: pokud jsem source, jdu k target; `inverse`: pokud jsem target, jdu k source (typicky u `Serving`).
-4. **Skip prázdných mezistupňů** — pokud mezisloupec nemá data, engine zkusí další stage.
-5. **Progressive disclosure** — vždy ukáže nejbližší další sloupec, i když je prázdný.
+4. **Progressive disclosure (výchozí)** — vždy ukáže první **viditelný** sloupec v pořadí šablony s definovanou transition, i když je prázdný.
+5. **Skryté sloupce** — uživatel může sloupec dočasně skrýt (viz [§ 3.5](#35-dočasné-skrytí-sloupce-v-browseru)); engine je při načítání přeskočí. Seznam skrytých stages se persistuje v URL toku.
 
 ### 3.3 Hardcoded v UI
 
@@ -217,6 +217,49 @@ Po každé změně profilu aplikace invaliduje cache a znovu načte resolved pro
 
 Stejný výsledek lze dosáhnout ručním vytvořením entit `UiNavigationProfile` + podřízených `UiTraversalTemplate` / `UiStage` / … v KC a připojením přes `orgNavigationProfile` na package-root. UI pak slouží jen k připojení existujícího profilu nebo k editaci již vytvořených šablon.
 
+### 3.5 Dočasné skrytí sloupce v browseru
+
+Výchozí chování zůstává **progressive disclosure** — prázdný mezisloupec se zobrazí, pokud pro něj existuje transition. Uživatel ale může sloupec **dočasně skrýt**, pokud v profilu existuje **přímá zkratka** na pozdější stage.
+
+#### Kdy lze sloupec skrýt
+
+| Sloupec | Podmínka |
+|---------|----------|
+| **Prázdný** | Existuje přímá transition z focus stage na nějaký **pozdější** sloupec v pořadí šablony (zkratka v profilu). |
+| **Neprázdný** | Totéž **a** cílová stage zkratky má v datech alespoň jednu entitu (opora v grafu). |
+
+Příklad: u procesu lze skrýt sloupec Biz služby, pokud existuje `processes → app-services` a (u neprázdného biz sloupce) app služby jsou v grafu napojené.
+
+#### Akce v UI
+
+| Akce | Kde |
+|------|-----|
+| **Přeskočit → {cíl}** | Tlačítko ve sloupci (pod seznamem položek) |
+| **Obnovit skrytý sloupec** | Chip „Skryté sloupce“ nad sloupci toku (focus bar) |
+| **↩ {název}** | V hlavičce sloupce — obnoví skryté stages **mezi** sousedními viditelnými sloupci |
+
+Skrytí **nemění model** v KC — jde jen o dočasný pohled v daném toku (flow).
+
+#### Persistace v URL
+
+Skryté sloupce se ukládají do parametru flow v URL jako `h:{stageCode},{stageCode}`:
+
+```text
+/?pkg=org-demo&active=f1&f1=t:business-exploration;e:...;h:biz-services
+```
+
+Odkaz lze sdílet — příjemce uvidí stejný průchod se skrytými sloupci.
+
+#### Implementace
+
+| Modul | Úloha |
+|-------|--------|
+| `TraversalEngine.loadNextColumn` / `expandPath` | parametr `hiddenStages` — přeskočí skryté stages |
+| `TraversalEngine.findSkipTarget` | zjistí, zda lze sloupec skrýt a kam vede zkratka |
+| `NavigationFlow.hiddenStages` | stav toku |
+| `browserUrlState` | serializace `h:` v URL |
+| `FlowColumns` / `FlowBar` | tlačítka skip / obnovit |
+
 ---
 
 ## 4. Traversal templates v praxi
@@ -302,6 +345,8 @@ Property `uiStageGroup` na ArchiMate třídách (varianta A z návrhu) **není**
 | Nastavení | Kde | Efekt |
 |-----------|-----|-------|
 | **Traversal template** | Browser → dropdown „Traversal“ | Vybere úhel pohledu (business / app impact / infra) |
+| **Skrytí sloupce** | Browser → *Přeskočit → …* ve sloupci | Dočasně skryje stage, pokud existuje zkratka v profilu |
+| **Obnovení sloupce** | Chip *Skryté sloupce* nebo ↩ v hlavičce sloupce | Vrátí skrytý stage do pohledu |
 | **Org package** | Settings | Který KC balíček se prochází |
 | **Auth KC** | Settings | Připojení ke Knowledge Core |
 | **Navigační profil** | Navigace (`/navigation`) | Připojení org profilu, editace stages / transitions / add actions |
@@ -380,6 +425,7 @@ Vestavěný fallback v `FALLBACK_TEMPLATES` zůstává pro offline dev, pokud KC
 | Algoritmus průchodu | `src/domain/traversal.ts` |
 | Načtení šablon | `src/domain/navigationProfile.ts` |
 | Editace pravidel | `/navigation` |
+| Dočasné skrytí sloupců | Browser — skip / obnovit, persist `h:` v URL |
 | Typy entit a vztahů | Metamodel `archimate-lite` v KC |
 | Filtry na instancích (`actorKind`, …) | Data v org package |
 | Validace vztahů | `AllowedRelationship` v KC |

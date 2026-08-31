@@ -23,6 +23,7 @@ import { getTemplate, type AddActionDef, type TraversalTemplate } from "@/domain
 import {
   type ColumnItem,
   type FocusStep,
+  type SkipTarget,
   TraversalEngine,
 } from "@/domain/traversal";
 import { useApp } from "@/state/AppContext";
@@ -68,6 +69,9 @@ export function BrowserPage() {
   const [loading, setLoading] = useState(false);
   const [spawnRequest, setSpawnRequest] = useState<SpawnRequest | null>(null);
   const [urlHydrated, setUrlHydrated] = useState(false);
+  const [skipOptionsByFlow, setSkipOptionsByFlow] = useState<
+    Record<string, Map<number, SkipTarget>>
+  >({});
   const skipUrlSync = useRef(false);
   const flowsRef = useRef(flows);
   flowsRef.current = flows;
@@ -104,6 +108,34 @@ export function BrowserPage() {
   const patchFlow = useCallback((flowId: string, patch: Partial<NavigationFlow>) => {
     setFlows((prev) => updateFlow(prev, flowId, patch));
   }, []);
+
+  const traversalOpts = useCallback(
+    (flow: NavigationFlow) => ({ hiddenStages: flow.hiddenStages }),
+    [],
+  );
+
+  const rebuildFlowColumns = useCallback(
+    async (
+      flow: NavigationFlow,
+      focus: FocusStep[],
+      hiddenStages: string[],
+    ): Promise<Pick<NavigationFlow, "columns" | "selected">> => {
+      const template = resolveTemplate(flow.templateCode);
+      const columns = await engine.expandPath(orgPackage, template, focus, { hiddenStages });
+      const last = focus[focus.length - 1];
+      let selected: NavigationFlow["selected"] = null;
+      if (last) {
+        try {
+          const ent = await getKc().getEntity(last.entityId);
+          selected = { entity: ent, classLocal: last.classLocal };
+        } catch {
+          selected = null;
+        }
+      }
+      return { columns, selected };
+    },
+    [engine, orgPackage, resolveTemplate],
+  );
 
   const syncUrl = useCallback(
     (session: BrowserSession) => {
@@ -171,7 +203,7 @@ export function BrowserPage() {
           };
         }
       }
-      const cols = await engine.expandPath(orgPackage, template, flow.focus);
+      const cols = await engine.expandPath(orgPackage, template, flow.focus, traversalOpts(flow));
       const last = flow.focus[flow.focus.length - 1];
       let selected = flow.selected;
       if (last) {
@@ -253,6 +285,27 @@ export function BrowserPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- graphEpoch only
   }, [graphEpoch]);
 
+  // Compute per-column skip affordances
+  useEffect(() => {
+    if (!ready || !urlHydrated || flows.length === 0) return;
+
+    void (async () => {
+      const next: Record<string, Map<number, SkipTarget>> = {};
+      for (const flow of flowsRef.current) {
+        if (flow.columns.length <= 1) continue;
+        const template = resolveTemplate(flow.templateCode);
+        next[flow.id] = await engine.computeSkipOptions(
+          orgPackage,
+          template,
+          flow.columns,
+          flow.focus,
+          flow.hiddenStages,
+        );
+      }
+      setSkipOptionsByFlow(next);
+    })();
+  }, [flows, ready, urlHydrated, orgPackage, engine, resolveTemplate]);
+
   // Sync URL when session changes
   useEffect(() => {
     if (!urlHydrated || flows.length === 0 || !activeFlowId) return;
@@ -284,7 +337,7 @@ export function BrowserPage() {
     try {
       const template = resolveTemplate(flow.templateCode);
       const root = await engine.loadRootColumn(orgPackage, template);
-      patchFlow(flowId, { focus: [], columns: [root], selected: null });
+      patchFlow(flowId, { focus: [], columns: [root], selected: null, hiddenStages: [] });
     } finally {
       setLoading(false);
     }
@@ -317,6 +370,7 @@ export function BrowserPage() {
         item.entity,
         item.classLocal,
         flow.columns[colIndex].stage.code,
+        traversalOpts(flow),
       );
       const kept = flow.columns.slice(0, colIndex + 1);
       patchFlow(flowId, {
@@ -340,7 +394,7 @@ export function BrowserPage() {
       setLoading(true);
       try {
         const template = resolveTemplate(flow.templateCode);
-        const cols = await engine.expandPath(orgPackage, template, truncated);
+        const cols = await engine.expandPath(orgPackage, template, truncated, traversalOpts(flow));
         const last = truncated[truncated.length - 1];
         let selected: NavigationFlow["selected"] = null;
         if (last) {
@@ -364,9 +418,53 @@ export function BrowserPage() {
       if (flow.focus.length === 0) {
         columns = [await engine.loadRootColumn(orgPackage, template)];
       } else {
-        columns = await engine.expandPath(orgPackage, template, flow.focus);
+        columns = await engine.expandPath(orgPackage, template, flow.focus, traversalOpts(flow));
       }
-      patchFlow(flowId, { templateCode: code, columns });
+      patchFlow(flowId, { templateCode: code, columns, hiddenStages: [] });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function skipColumn(flowId: string, colIndex: number) {
+    if (colIndex < 1) return;
+    const flow = flows.find((f) => f.id === flowId);
+    if (!flow) return;
+
+    const hideStageCode = flow.columns[colIndex]?.stage.code;
+    if (!hideStageCode || flow.hiddenStages.includes(hideStageCode)) return;
+
+    const newHidden = [...flow.hiddenStages, hideStageCode];
+    const newFocus = flow.focus.slice(0, colIndex);
+
+    setActiveFlowId(flowId);
+    setLoading(true);
+    try {
+      const rebuilt = await rebuildFlowColumns(flow, newFocus, newHidden);
+      patchFlow(flowId, {
+        focus: newFocus,
+        hiddenStages: newHidden,
+        ...rebuilt,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function restoreHiddenStage(flowId: string, stageCode: string) {
+    const flow = flows.find((f) => f.id === flowId);
+    if (!flow || !flow.hiddenStages.includes(stageCode)) return;
+
+    const newHidden = flow.hiddenStages.filter((s) => s !== stageCode);
+
+    setActiveFlowId(flowId);
+    setLoading(true);
+    try {
+      const rebuilt = await rebuildFlowColumns(flow, flow.focus, newHidden);
+      patchFlow(flowId, {
+        hiddenStages: newHidden,
+        ...rebuilt,
+      });
     } finally {
       setLoading(false);
     }
@@ -570,6 +668,7 @@ export function BrowserPage() {
               templateOptions={templateOptions}
               ready={ready}
               loading={loading}
+              skipOptions={skipOptionsByFlow[flow.id] ?? new Map()}
               onActivate={() => setActiveFlowId(flow.id)}
               onClose={() => handleCloseFlow(flow.id)}
               onPromote={() => handlePromoteFlow(flow.id)}
@@ -585,6 +684,8 @@ export function BrowserPage() {
                 setActiveFlowId(flow.id);
                 setAddStage({ flowId: flow.id, colIndex, stageCode });
               }}
+              onSkipColumn={(colIndex) => void skipColumn(flow.id, colIndex)}
+              onRestoreHiddenStage={(stageCode) => void restoreHiddenStage(flow.id, stageCode)}
             />
           ))}
         </div>
