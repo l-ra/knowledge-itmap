@@ -22,7 +22,7 @@ Stejná data v Knowledge Core, jiná „čočka“ = jiný **traversal template*
 Implementace:
 
 - **Data a vztahy** — instance v org package v KC
-- **Metamodel** — balíček `archimate-lite` ≥ 3.0.0 (třídy, properties, enumy, AllowedRelationship)
+- **Metamodel** — balíček `archimate-lite` ≥ 3.1.0 (třídy, properties, enumy, AllowedRelationship)
 - **Navigace** — balíček `archimate-ui-traversal` ≥ 1.0.0; `NavigationProfileResolver` načítá `Ui*` profil z KC; fallback `FALLBACK_TEMPLATES` v `templates.ts`
 - **Zdroj bundlů** — sibling repo [`knowledge-models`](../../knowledge-models/) (ne `knowledge-core`)
 
@@ -31,11 +31,11 @@ Implementace:
 ## 2. Architektura (vrstvy)
 
 ```text
-Knowledge Core (data)     archimate-lite (3.0.0)     archimate-ui-traversal (1.0.0)   IT Map
+Knowledge Core (data)     archimate-lite (3.1.0)     archimate-ui-traversal (1.0.0)   IT Map
 ─────────────────────     ──────────────────────     ─────────────────────────────   ──────
 instance organizace       třídy, properties          UiNavigationProfile             TraversalEngine
 vztahy (Composition, …)   AllowedRelationship        UiTraversalTemplate / Stage…    NavigationProfileResolver
-actorKind, …              enumy, shapes              orgNavigationProfile            /navigation UI
+actorKind, organizationScope  enumy, shapes          orgNavigationProfile            /navigation UI
 ```
 
 | Vrstva | Odpovídá na otázku |
@@ -49,9 +49,9 @@ actorKind, …              enumy, shapes              orgNavigationProfile     
 
 ## 3. Konfigurace navigace
 
-Topologie navigace je v KC jako policy data (`UiNavigationProfile`, `UiTraversalTemplate`, `UiStage`, `UiTransition`, `UiAddAction`) v balíčku **`archimate-ui-traversal` ≥ 1.0.0** (závisí na `archimate-lite` ^3.0.0). Výchozí seed odpovídá dříve hardcoded šablonám v `src/domain/templates.ts` (`FALLBACK_TEMPLATES`).
+Topologie navigace je v KC jako policy data (`UiNavigationProfile`, `UiTraversalTemplate`, `UiStage`, `UiTransition`, `UiAddAction`) v balíčku **`archimate-ui-traversal` ≥ 1.0.0** (závisí na `archimate-lite` ^3.1.0). Výchozí seed odpovídá dříve hardcoded šablonám v `src/domain/templates.ts` (`FALLBACK_TEMPLATES`).
 
-Do `archimate-lite` 2.3.1 žila UI metadata ve stejném package; od 3.0.0 jsou oddělená. Klientská IRI mapa: [`knowledge-models/migrations/`](../../knowledge-models/migrations/).
+Do `archimate-lite` 2.3.1 žila UI metadata ve stejném package; od 3.0.0 jsou oddělená. Od **3.1.0** je taxonomie BusinessActor rozdělena na `actorKind` (povaha) a `organizationScope` (internal/external). Klientská IRI mapa: [`knowledge-models/migrations/`](../../knowledge-models/migrations/).
 
 Org package může připojit vlastní profil přes property `orgNavigationProfile` na package-root. Editace: stránka **Navigace** (`/navigation`) — viz [§ 3.4](#34-vlastní-org-profil--postup-z-ui).
 
@@ -72,8 +72,8 @@ Každá šablona (`TraversalTemplate`) definuje tři části:
 | `code` | Identifikátor stage |
 | `labelCs` | Český název sloupce v UI |
 | `classes[]` | ArchiMate třídy zobrazené v tomto sloupci |
-| `actorKinds[]` | Volitelný soft filtr pro `BusinessActor` (`department` / `person` / `external`) |
-| `filter` | Volitelný filtr na property (např. `actorKind=department` pro kořen) |
+| `actorKinds[]` | Volitelný soft filtr pro `BusinessActor` (`organizationalUnit` / `person` / `organization`) |
+| `filter` | Volitelný filtr na property (např. `actorKind=organizationalUnit` pro kořen) |
 
 #### Transitions (přechody) — `TransitionDef`
 
@@ -120,7 +120,7 @@ Stránka **Navigace** (`/navigation`, položka v horní liště) slouží k při
 
 | Podmínka | Proč |
 |----------|------|
-| Připojený KC a načtené schema | Bez `archimate-ui-traversal` ≥ 1.0.0 (a `archimate-lite` ≥ 3.0.0) chybí `Ui*` třídy a systémový seed |
+| Připojený KC a načtené schema | Bez `archimate-ui-traversal` ≥ 1.0.0 (a `archimate-lite` ≥ 3.1.0) chybí `Ui*` třídy a systémový seed |
 | Aktivní **org package** (Settings) | Profil se váže na package-root vybrané organizace |
 | **Manuální ChangeSet** v horní liště | Všechny zápisy (duplikace, připojení, úpravy stages/…) jdou přes ChangeSet; bez něj je stránka jen pro čtení |
 
@@ -172,7 +172,7 @@ Seznam stages vlevo, formulář vpravo. Pole:
 | `columnLabelCs` | `columnLabelCs` | Název sloupce v Browseru |
 | `stageOrder` | `stageOrder` | Pořadí sloupce |
 | `targetClasses` | `targetClasses` | Multi-select ArchiMate tříd ve sloupci |
-| `actorKinds` | `actorKinds` | CSV filtr pro `BusinessActor` (`department,person,external`) |
+| `actorKinds` | `actorKinds` | CSV filtr pro `BusinessActor` (`organizationalUnit,person`) |
 
 Akce: **Uložit stage**, **Smazat**, **Nový** (prázdný formulář pro nový stage).
 
@@ -312,8 +312,8 @@ Add menu prázdné — template je primárně pro infra pohled.
 | Co | K čemu slouží v procházení |
 |----|---------------------------|
 | **Třídy** (`BusinessActor`, `Serving`, …) | Mapování IRI ↔ local name; filtrování entit ve sloupci |
-| **Properties** (`relSource`, `relTarget`, `actorKind`, …) | Čtení vztahů a filtrů |
-| **Enumy** | `actorKind`, `ownership`, `associationKind`, `networkKind`, `networkRole`, `accessMode`, `flowKind`, … |
+| **Properties** (`relSource`, `relTarget`, `actorKind`, `organizationScope`, …) | Čtení vztahů a filtrů |
+| **Enumy** | `actorKind`, `organizationScope`, `ownership`, `associationKind`, `networkKind`, `networkRole`, `accessMode`, `flowKind`, … |
 | **AllowedRelationship** | Validace při zápisu (ne přímo pro traversal, ale stejné typy vztahů) |
 
 Schema resolver (`src/kc/schema.ts`) načte ArchiMate slovník z `archimate-lite` a `Ui*` slovník z `archimate-ui-traversal` (plus `kc-base` properties).
@@ -324,7 +324,7 @@ Traversal **čte** tyto properties z instancí v org package:
 
 | Property | Efekt v browseru |
 |----------|------------------|
-| `actorKind` | Rozdělení `BusinessActor` do sloupců Organizace vs. Lidé/Role |
+| `actorKind` + `organizationScope` | Rozdělení `BusinessActor` do sloupců Organizace vs. Lidé/Role |
 | `associationKind` | Sémantika `Association` (síť, umístění…) — při Add i v Inspectoru |
 | `accessMode` | Default při vytváření `Access` vztahu |
 | `ownership`, `networkKind`, `networkRole` | Defaults při Add, zobrazení v Inspectoru |
@@ -367,7 +367,7 @@ Podrobný postup pro vlastní profil: [§ 3.4](#34-vlastní-org-profil--postup-z
 |-----------|-----|-------|
 | `Ui*` traversal profil | `archimate-ui-traversal` seed + volitelně org package | Pořadí sloupců, přechody, Add menu |
 | `orgNavigationProfile` | package-root aktivního org | Který profil platí pro organizaci |
-| `actorKind` na BusinessActor | instance | Do kterého sloupce actor spadne |
+| `actorKind` / `organizationScope` na BusinessActor | instance | Do kterého sloupce actor spadne |
 | Vztahy mezi entitami | instance | Co se ukáže v dalším sloupci |
 | Enum hodnoty | archimate-lite catalog | Možnosti v Add dialogu / Inspectoru |
 
@@ -424,7 +424,7 @@ Deklarativní UI profil (původně varianta B v archimate-lite 2.3.x) žije od z
 
 Vestavěný fallback v `FALLBACK_TEMPLATES` zůstává pro offline dev, pokud KC profil chybí.
 
-Import bundlů: `scripts/seed-demo.sh` z `knowledge-models` (`kc-base` 1.1.0 → `archimate-lite` 3.0.0 → `archimate-ui-traversal` 1.0.0).
+Import bundlů: `scripts/seed-demo.sh` z `knowledge-models` (`kc-base` 1.1.0 → `archimate-lite` 3.1.0 → `archimate-ui-traversal` 1.0.0).
 
 ---
 
@@ -437,8 +437,8 @@ Import bundlů: `scripts/seed-demo.sh` z `knowledge-models` (`kc-base` 1.1.0 →
 | Načtení šablon | `src/domain/navigationProfile.ts` |
 | Editace pravidel | `/navigation` |
 | Dočasné skrytí sloupců | Browser — skip / obnovit, persist `h:` v URL |
-| Typy entit a vztahů | Metamodel `archimate-lite` ≥ 3.0.0 (repo `knowledge-models`) |
-| Filtry na instancích (`actorKind`, …) | Data v org package |
+| Typy entit a vztahů | Metamodel `archimate-lite` ≥ 3.1.0 (repo `knowledge-models`) |
+| Filtry na instancích (`actorKind`, `organizationScope`, …) | Data v org package |
 | Validace vztahů | `AllowedRelationship` v KC |
 | Fallback bez KC profilu | `FALLBACK_TEMPLATES` v `templates.ts` |
 

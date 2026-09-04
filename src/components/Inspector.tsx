@@ -20,6 +20,12 @@ interface Props {
   onUpdated: () => void;
 }
 
+type StringPropPatch = {
+  newValue?: string;
+  existingStatement?: Statement;
+  remove?: boolean;
+};
+
 export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }: Props) {
   const { orgPackage, orgPackageLabel, packageDisplayName, pushChangeSet } = useApp();
   const [tab, setTab] = useState<"basic" | "extended">("basic");
@@ -27,10 +33,13 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [actorKind, setActorKind] = useState("");
+  const [organizationScope, setOrganizationScope] = useState("");
   const [originalName, setOriginalName] = useState("");
   const [originalDesc, setOriginalDesc] = useState("");
   const [originalActorKind, setOriginalActorKind] = useState("");
+  const [originalOrganizationScope, setOriginalOrganizationScope] = useState("");
   const [actorKindStmt, setActorKindStmt] = useState<Statement | undefined>();
+  const [organizationScopeStmt, setOrganizationScopeStmt] = useState<Statement | undefined>();
   const [busy, setBusy] = useState(false);
   const [newPropLocal, setNewPropLocal] = useState("");
   const [newPropLabel, setNewPropLabel] = useState("");
@@ -47,9 +56,16 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
       const akStmts = await engine.loadPropertyStatements(entityId, "actorKind");
       const ak = akStmts[0];
       setActorKindStmt(ak);
-      const val = ak ? stringFromValue(ak.value) : "";
-      setActorKind(val);
-      setOriginalActorKind(val);
+      const akVal = ak ? stringFromValue(ak.value) : "";
+      setActorKind(akVal);
+      setOriginalActorKind(akVal);
+
+      const scopeStmts = await engine.loadPropertyStatements(entityId, "organizationScope");
+      const scope = scopeStmts[0];
+      setOrganizationScopeStmt(scope);
+      const scopeVal = scope ? stringFromValue(scope.value) : "";
+      setOrganizationScope(scopeVal);
+      setOriginalOrganizationScope(scopeVal);
     }
   }
 
@@ -77,19 +93,44 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
     [schema, classLocal],
   );
 
+  const organizationScopeRules = useMemo(
+    () =>
+      classLocal === "BusinessActor" ? propertyEditRules(schema, "organizationScope", classLocal) : null,
+    [schema, classLocal],
+  );
+
   const actorKindInvalid =
     classLocal === "BusinessActor" &&
     actorKindRules !== null &&
     actorKindRules.minCount >= 1 &&
     !actorKind.trim();
 
+  const organizationScopeInvalid =
+    classLocal === "BusinessActor" &&
+    organizationScopeRules !== null &&
+    organizationScopeRules.minCount >= 1 &&
+    !organizationScope.trim();
+
   const hasBasicChanges = useMemo(() => {
     const nameChanged = !stringValuesEqual(name, originalName);
     const descChanged = !stringValuesEqual(desc, originalDesc);
     const actorKindChanged =
       classLocal === "BusinessActor" && !stringValuesEqual(actorKind, originalActorKind);
-    return nameChanged || descChanged || actorKindChanged;
-  }, [name, originalName, desc, originalDesc, actorKind, originalActorKind, classLocal]);
+    const scopeChanged =
+      classLocal === "BusinessActor" &&
+      !stringValuesEqual(organizationScope, originalOrganizationScope);
+    return nameChanged || descChanged || actorKindChanged || scopeChanged;
+  }, [
+    name,
+    originalName,
+    desc,
+    originalDesc,
+    actorKind,
+    originalActorKind,
+    organizationScope,
+    originalOrganizationScope,
+    classLocal,
+  ]);
 
   if (!entity) {
     return (
@@ -101,7 +142,18 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
     );
   }
 
-  const domain = domainLabelFor(classLocal || "?", actorKind);
+  const domain = domainLabelFor(classLocal || "?", actorKind, organizationScope);
+
+  function buildStringPatch(
+    value: string,
+    original: string,
+    existing: Statement | undefined,
+  ): StringPropPatch | undefined {
+    if (stringValuesEqual(value, original)) return undefined;
+    if (value) return { newValue: value, existingStatement: existing };
+    if (existing) return { remove: true, existingStatement: existing };
+    return undefined;
+  }
 
   async function saveBasic() {
     if (!hasBasicChanges) return;
@@ -109,17 +161,12 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
     try {
       const nameChanged = !stringValuesEqual(name, originalName);
       const descChanged = !stringValuesEqual(desc, originalDesc);
-      const actorKindChanged =
-        classLocal === "BusinessActor" && !stringValuesEqual(actorKind, originalActorKind);
-
-      let actorKindPatch: { newValue?: string; existingStatement?: Statement; remove?: boolean } | undefined;
-      if (actorKindChanged) {
-        if (actorKind) {
-          actorKindPatch = { newValue: actorKind, existingStatement: actorKindStmt };
-        } else if (actorKindStmt) {
-          actorKindPatch = { remove: true, existingStatement: actorKindStmt };
-        }
-      }
+      const actorKindPatch = buildStringPatch(actorKind, originalActorKind, actorKindStmt);
+      const organizationScopePatch = buildStringPatch(
+        organizationScope,
+        originalOrganizationScope,
+        organizationScopeStmt,
+      );
 
       const cs = await model.saveEntityBasics({
         id: entity!.id,
@@ -128,12 +175,14 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
         revision: entity!.revisionNo,
         packageCode: orgPackage,
         actorKind: actorKindPatch,
+        organizationScope: organizationScopePatch,
       });
       if (cs) {
         pushChangeSet(cs);
         setOriginalName(name);
         setOriginalDesc(desc);
-        if (actorKindChanged) setOriginalActorKind(actorKind);
+        if (actorKindPatch) setOriginalActorKind(actorKind);
+        if (organizationScopePatch) setOriginalOrganizationScope(organizationScope);
         await reloadStatements(entity!.id);
         onUpdated();
       }
@@ -217,7 +266,12 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
   const actorKindEnum =
     actorKindRules?.enumValues.length
       ? actorKindRules.enumValues
-      : ["department", "person", "external"];
+      : ["person", "organizationalUnit", "organization"];
+
+  const organizationScopeEnum =
+    organizationScopeRules?.enumValues.length
+      ? organizationScopeRules.enumValues
+      : ["internal", "external"];
 
   return (
     <aside className={`inspector ${isPeek ? "inspector-peek" : ""}`}>
@@ -262,20 +316,45 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
               <textarea value={desc} onChange={(e) => setDesc(e.target.value)} />
             </div>
             {classLocal === "BusinessActor" && (
-              <div className="field">
-                <label>Typ (actorKind)</label>
-                <select value={actorKind} onChange={(e) => setActorKind(e.target.value)}>
-                  {!(actorKindRules && actorKindRules.minCount >= 1) && <option value="">—</option>}
-                  {actorKindEnum.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-                {actorKindRules && actorKindRules.minCount >= 1 && !actorKind && (
-                  <p className="empty stmt-hint">Povinná hodnota (min {actorKindRules.minCount}).</p>
-                )}
-              </div>
+              <>
+                <div className="field">
+                  <label>Typ (actorKind)</label>
+                  <select value={actorKind} onChange={(e) => setActorKind(e.target.value)}>
+                    {!(actorKindRules && actorKindRules.minCount >= 1) && <option value="">—</option>}
+                    {actorKindEnum.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  {actorKindRules && actorKindRules.minCount >= 1 && !actorKind && (
+                    <p className="empty stmt-hint">Povinná hodnota (min {actorKindRules.minCount}).</p>
+                  )}
+                </div>
+                <div className="field">
+                  <label>Rozsah (organizationScope)</label>
+                  <select
+                    value={organizationScope}
+                    onChange={(e) => setOrganizationScope(e.target.value)}
+                  >
+                    {!(organizationScopeRules && organizationScopeRules.minCount >= 1) && (
+                      <option value="">—</option>
+                    )}
+                    {organizationScopeEnum.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  {organizationScopeRules &&
+                    organizationScopeRules.minCount >= 1 &&
+                    !organizationScope && (
+                      <p className="empty stmt-hint">
+                        Povinná hodnota (min {organizationScopeRules.minCount}).
+                      </p>
+                    )}
+                </div>
+              </>
             )}
             <div className="field">
               <label>Package / IRI</label>
@@ -290,7 +369,7 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
             <button
               type="button"
               className="toolbar-btn primary"
-              disabled={busy || !hasBasicChanges || actorKindInvalid}
+              disabled={busy || !hasBasicChanges || actorKindInvalid || organizationScopeInvalid}
               onClick={() => void saveBasic()}
             >
               Uložit

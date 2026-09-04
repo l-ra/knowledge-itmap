@@ -6,10 +6,10 @@ export interface StageDef {
   labelCs: string;
   /** Primary ArchiMate classes shown in this column */
   classes: ArchiClassLocal[];
-  /** Optional instance filter on a property (e.g. actorKind=department for org roots) */
+  /** Optional instance filter on a property (e.g. actorKind=organizationalUnit for org roots) */
   filter?: { property: string; value: string };
-  /** Soft filter for display grouping */
-  actorKinds?: Array<"department" | "person" | "external">;
+  /** Soft filter for display grouping (AML 3.1.0 actorKind values) */
+  actorKinds?: Array<"person" | "organizationalUnit" | "organization">;
 }
 
 export interface TransitionDef {
@@ -55,13 +55,13 @@ export const BUSINESS_EXPLORATION: TraversalTemplate = {
       code: "organization",
       labelCs: "Organizace",
       classes: ["BusinessActor"],
-      actorKinds: ["department"],
+      actorKinds: ["organizationalUnit"],
     },
     {
       code: "people-roles",
       labelCs: "Lidé / Role",
       classes: ["BusinessActor", "BusinessRole"],
-      actorKinds: ["person", "external"],
+      actorKinds: ["person"],
     },
     {
       code: "functions",
@@ -255,7 +255,7 @@ export const BUSINESS_EXPLORATION: TraversalTemplate = {
       code: "add-dept",
       labelCs: "Organizační jednotka",
       createsClass: "BusinessActor",
-      defaults: { actorKind: "department" },
+      defaults: { actorKind: "organizationalUnit", organizationScope: "internal" },
       derivesRelationship: "Composition",
       relationshipDirection: "from-selected-to-new",
     },
@@ -264,7 +264,7 @@ export const BUSINESS_EXPLORATION: TraversalTemplate = {
       code: "add-person",
       labelCs: "Osoba",
       createsClass: "BusinessActor",
-      defaults: { actorKind: "person" },
+      defaults: { actorKind: "person", organizationScope: "internal" },
       derivesRelationship: "Composition",
       relationshipDirection: "from-selected-to-new",
     },

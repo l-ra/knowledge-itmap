@@ -11,7 +11,7 @@ import type {
   TransitionDef,
 } from "./templates";
 
-const ACTOR_KINDS = new Set(["department", "person", "external"]);
+const ACTOR_KINDS = new Set(["person", "organizationalUnit", "organization"]);
 
 function asArchiClass(local: string): ArchiClassLocal | null {
   if (!local || local.startsWith("Ui") || local.startsWith("ArchiMate")) return null;
@@ -66,8 +66,8 @@ export function mapTemplateBundle(
       continue;
     }
 
-    const actorKinds = stage.actorKinds?.filter((k): k is "department" | "person" | "external" =>
-      ACTOR_KINDS.has(k),
+    const actorKinds = stage.actorKinds?.filter(
+      (k): k is "person" | "organizationalUnit" | "organization" => ACTOR_KINDS.has(k),
     );
 
     const filterProp = stage.instanceFilter

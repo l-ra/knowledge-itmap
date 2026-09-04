@@ -80,9 +80,18 @@ export function hiddenStagesBetween(
 export function domainLabelFor(
   classLocal: string,
   actorKind?: string,
+  organizationScope?: string,
 ): string {
   if (classLocal === "BusinessActor") {
-    if (actorKind === "person") return "Osoba";
+    const external = organizationScope === "external";
+    if (actorKind === "person") return external ? "Externí osoba" : "Osoba";
+    if (actorKind === "organization") {
+      return external ? "Externí organizace" : "Organizace";
+    }
+    if (actorKind === "organizationalUnit") {
+      return external ? "Externí jednotka" : "Organizační jednotka";
+    }
+    // Legacy fallbacks (pre-3.1.0)
     if (actorKind === "external") return "Externí subjekt";
     return "Organizační jednotka";
   }
@@ -147,6 +156,10 @@ export class TraversalEngine {
 
     for (const entity of page.items) {
       const actorKind = await this.readStringProp(entity.id, "actorKind");
+      const organizationScope =
+        classLocal === "BusinessActor"
+          ? await this.readStringProp(entity.id, "organizationScope")
+          : undefined;
       if (stage.actorKinds && classLocal === "BusinessActor") {
         if (!actorKind || !stage.actorKinds.includes(actorKind as never)) continue;
       }
@@ -160,7 +173,7 @@ export class TraversalEngine {
       items.push({
         entity,
         classLocal,
-        domainLabel: domainLabelFor(classLocal, actorKind),
+        domainLabel: domainLabelFor(classLocal, actorKind, organizationScope),
       });
     }
 
@@ -349,13 +362,17 @@ export class TraversalEngine {
       });
       for (const entity of page.items) {
         const actorKind = await this.readStringProp(entity.id, "actorKind");
+        const organizationScope =
+          classLocal === "BusinessActor"
+            ? await this.readStringProp(entity.id, "organizationScope")
+            : undefined;
         if (stage.actorKinds && classLocal === "BusinessActor") {
           if (!actorKind || !stage.actorKinds.includes(actorKind as never)) continue;
         }
         items.push({
           entity,
           classLocal,
-          domainLabel: domainLabelFor(classLocal, actorKind),
+          domainLabel: domainLabelFor(classLocal, actorKind, organizationScope),
         });
       }
     }
@@ -402,18 +419,20 @@ export class TraversalEngine {
         if (!classLocal) continue;
         if (!toStage.classes.includes(classLocal as never)) continue;
 
-        if (toStage.actorKinds && classLocal === "BusinessActor") {
-          const actorKind = await this.readStringProp(entity.id, "actorKind");
-          if (!actorKind || !toStage.actorKinds.includes(actorKind as never)) continue;
+        let actorKind: string | undefined;
+        let organizationScope: string | undefined;
+        if (classLocal === "BusinessActor") {
+          actorKind = await this.readStringProp(entity.id, "actorKind");
+          organizationScope = await this.readStringProp(entity.id, "organizationScope");
+          if (toStage.actorKinds) {
+            if (!actorKind || !toStage.actorKinds.includes(actorKind as never)) continue;
+          }
         }
 
         found.set(neighborId, {
           entity,
           classLocal,
-          domainLabel: domainLabelFor(
-            classLocal,
-            await this.readStringProp(entity.id, "actorKind"),
-          ),
+          domainLabel: domainLabelFor(classLocal, actorKind, organizationScope),
           edgeLabelCs: tr.edgeLabelCs,
           relationshipId: relId,
           relationshipClass: tr.relationship,

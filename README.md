@@ -1,6 +1,6 @@
 # IT Map — Organization Architecture Editor
 
-Doménově specializovaný editor nad **Knowledge Core**, metamodelem **archimate-lite ≥ 3.0.0**
+Doménově specializovaný editor nad **Knowledge Core**, metamodelem **archimate-lite ≥ 3.1.0**
 a navigačním package **archimate-ui-traversal ≥ 1.0.0**.
 Uživatel prochází a edituje model organizace ve sloupcovém browseru (Organization → … → Network / Location).
 
@@ -11,7 +11,7 @@ Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
 - Node.js 20+
 - Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
 - Sibling checkout [`knowledge-models`](../knowledge-models) s bundley
-- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` 3.0.0 + `archimate-ui-traversal` 1.0.0
+- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` 3.1.0 + `archimate-ui-traversal` 1.0.0
 
 ## Lokální spuštění s Knowledge Core (DEV)
 
@@ -46,16 +46,16 @@ npm run setup:seed
 `setup:seed` importuje:
 
 1. `kc-base-1.1.0.bundle.json`
-2. `archimate-lite-3.0.0.bundle.json`
+2. `archimate-lite-3.1.0.bundle.json`
 3. `archimate-ui-traversal-1.0.0.bundle.json`
 4. volitelně demo loader `archimate-lite-demo`
-5. package `org-demo` (continuous, závislosti `archimate-lite ^3.0.0` + `archimate-ui-traversal ^1.0.0`)
+5. package `org-demo` (continuous, závislosti `archimate-lite ^3.1.0` + `archimate-ui-traversal ^1.0.0`)
 
 Alternativa ručně (KC UI → Packages → Import release bundle) ve stejném pořadí.
 
 > **Migrace z 2.3.1:** UI metadata IRI se přesunula do `archimate-ui-traversal`.
 > Klientská mapa: [`knowledge-models/migrations/`](../knowledge-models/migrations/).
-> Neimportujte `archimate-lite@3.0.0` přes existující `2.3.1` (`compat_breaking`).
+> Neimportujte `archimate-lite@3.1.0` přes existující `2.3.1` / `3.0.0` bez migrace statements (`compat_breaking`).
 
 ### 3. Spusť IT Map
 
@@ -79,7 +79,7 @@ Org package: vytvoř / vyber v **Packages** (`org-demo`).
 |--------|--------|
 | Column browser | Traversal templates: Business exploration, Application impact, Infrastructure |
 | Focus path | Breadcrumb grafem |
-| Inspector Basic | Název, popis, actorKind |
+| Inspector Basic | Název, popis, actorKind, organizationScope |
 | Inspector Extended | Statements, edit property, open-world nová property |
 | CRUD | Doménové „+ Přidat“ s odvozenými ArchiMate vztahy |
 | Packages | Seznam, import bundle, publish release, org package |
@@ -109,5 +109,5 @@ docs/           — funkční specifikace a návrhy
 ## Poznámky
 
 - Schema se resolvuje přes `iriLocal` — nikdy hardcoded Q/P z jiné instalace.
-- Doménový model: `archimate-lite` **3.0.0+**; UI traversal: package `archimate-ui-traversal`.
+- Doménový model: `archimate-lite` **3.1.0+**; UI traversal: package `archimate-ui-traversal`.
 - Flow vyžaduje `flowLabel`; Association nabízí `associationKind`.

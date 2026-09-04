@@ -4,7 +4,7 @@
 **Datum:** 2026-09-04  
 **Stav:** Draft (aktualizace package layout)
 
-> **Aktuální layout modelů (září 2026):** Doménové bundly jsou v sibling repo [`knowledge-models`](../../knowledge-models/) (`kc-base` 1.1.0, `archimate-lite` 3.0.0, `archimate-ui-traversal` 1.0.0). UI traversal metadata **nejsou** součástí `archimate-lite`. Kapitoly níže o „vše v archimate-lite / knowledge-core“ popisují původní plán 2.1.0 — pro živý kontrakt navigace viz [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md).
+> **Aktuální layout modelů (září 2026):** Doménové bundly jsou v sibling repo [`knowledge-models`](../../knowledge-models/) (`kc-base` 1.1.0, `archimate-lite` 3.1.0, `archimate-ui-traversal` 1.0.0). UI traversal metadata **nejsou** součástí `archimate-lite`. Kapitoly níže o „vše v archimate-lite / knowledge-core“ popisují původní plán 2.1.0 — pro živý kontrakt navigace viz [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md).
 
 **Související dokumenty:**
 - [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md) — popis traversal templates, TraversalEngine a hranice kód vs. metadata
@@ -79,9 +79,9 @@ Uživatel pracuje s těmito koncepty; ArchiMate typ je implementační detail zo
 
 | Co uživatel přidává | ArchiMate třída | Upřesnění typu (property) |
 |---------------------|-----------------|---------------------------|
-| Organizační jednotka / tým | `BusinessActor` | `actorKind=department` |
-| Osoba | `BusinessActor` | `actorKind=person` |
-| Externí subjekt | `BusinessActor` | `actorKind=external` |
+| Organizační jednotka / tým | `BusinessActor` | `actorKind=organizationalUnit`, `organizationScope=internal` |
+| Osoba | `BusinessActor` | `actorKind=person`, `organizationScope=internal` |
+| Externí organizace | `BusinessActor` | `actorKind=organization`, `organizationScope=external` |
 | Role / odpovědnost | `BusinessRole` | — |
 | Oblast odpovědnosti | `BusinessFunction` | **doplnit do archimate-lite** |
 | Konkrétní aktivita | `BusinessProcess` | — |
@@ -146,7 +146,7 @@ Aplikace respektuje granularitu L0–L4 dle archimate-lite (`modelingDepth`). Sl
 ┌─────────────────────────────────────────────────────────────┐
 │ kc-base (release 1.1.0)          — foundation, instanceOf   │
 ├─────────────────────────────────────────────────────────────┤
-│ archimate-lite (release ≥ 3.0.0) — ArchiMate + org metodika │
+│ archimate-lite (release ≥ 3.1.0) — ArchiMate + org metodika │
 │   BusinessFunction, actorKind, associationKind, …           │
 ├─────────────────────────────────────────────────────────────┤
 │ archimate-ui-traversal (≥ 1.0.0) — IT Map navigační profil  │
@@ -174,15 +174,15 @@ Závislost instance package:
   "lifecycle": "continuous",
   "iriBase": "https://example.org/org/ote/",
   "dependencies": [
-    { "dependsOnCode": "archimate-lite", "versionRange": "^3.0.0" },
+    { "dependsOnCode": "archimate-lite", "versionRange": "^3.1.0" },
     { "dependsOnCode": "archimate-ui-traversal", "versionRange": "^1.0.0" }
   ]
 }
 ```
 
-### 4.2 Předpoklad: archimate-lite ≥ 3.0.0 + archimate-ui-traversal ≥ 1.0.0
+### 4.2 Předpoklad: archimate-lite ≥ 3.1.0 + archimate-ui-traversal ≥ 1.0.0
 
-Aplikace **vyžaduje** `archimate-lite` **3.0.0+** (doména bez UI metadat) a **`archimate-ui-traversal` 1.0.0+** (navigační profil). Doménový checklist 2.1.0 je v [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) (historicky implementován; aktuální release je 3.0.0).
+Aplikace **vyžaduje** `archimate-lite` **3.1.0+** (doména bez UI metadat; BusinessActor: `actorKind` + `organizationScope`) a **`archimate-ui-traversal` 1.0.0+** (navigační profil). Doménový checklist 2.1.0 je v [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) (historicky implementován; aktuální release je 3.1.0).
 
 ### 4.3 Reprezentace prvků a vztahů v KC
 
@@ -191,7 +191,8 @@ Aplikace **vyžaduje** `archimate-lite` **3.0.0+** (doména bez UI metadat) a **
 ```text
 POST /v1/entities  { packageCode, labels, iriLocal, descriptions }
 POST /v1/statements  subject → instanceOf → BusinessFunction
-POST /v1/statements  subject → actorKind → "department"
+POST /v1/statements  subject → actorKind → "organizationalUnit"
+POST /v1/statements  subject → organizationScope → "internal"
 ```
 
 **Vztah (first-class entita, Wikibase pattern):**
@@ -411,7 +412,7 @@ Příklady:
                             │ REST /v1/*
 ┌───────────────────────────▼──────────────────────────────────┐
 │  Knowledge Core                                              │
-│  archimate-lite ≥ 3.0.0 · archimate-ui-traversal ≥ 1.0.0 · org-* │
+│  archimate-lite ≥ 3.1.0 · archimate-ui-traversal ≥ 1.0.0 · org-* │
 └──────────────────────────────────────────────────────────────┘
 ```
 

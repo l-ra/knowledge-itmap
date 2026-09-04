@@ -1,3 +1,7 @@
+> **Aktuální stav:** [`rozhodnuti-v1.md`](./rozhodnuti-v1.md); implementační plán ke schválení [`implementacni-plan-karty-v1.md`](./implementacni-plan-karty-v1.md).  
+> **Prerekvizita metamodelu:** [`zadani-archimate-lite-3.1.0.md`](./zadani-archimate-lite-3.1.0.md) — splněna (AML 3.1.0).  
+> Níže je zachycená rozprava (historický transcript).
+
 ### User
 
 Pojdme spolu navrhnout kostru UX, ktera bude zalozena na diskusich z predchozich chatu a ktera bude vychazet z nasledujicich pozadavku:

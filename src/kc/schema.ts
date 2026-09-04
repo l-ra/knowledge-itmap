@@ -250,6 +250,7 @@ export class SchemaResolver {
     const result = new Map<string, string[]>();
     const enumLocals = [
       "actorKind",
+      "organizationScope",
       "ownership",
       "associationKind",
       "networkKind",

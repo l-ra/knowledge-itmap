@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Import kc-base + archimate-lite 3.0.0 + archimate-ui-traversal 1.0.0
+# Import kc-base + archimate-lite 3.1.0 + archimate-ui-traversal 1.0.0
 # and optional demo seed into local Knowledge Core.
 # Bundles live in sibling repo knowledge-models (not knowledge-core).
 set -euo pipefail
@@ -14,7 +14,7 @@ echo "MODELS_ROOT=$MODELS_ROOT"
 echo "KC_URL=$KC_URL"
 
 kc_base="$MODELS_ROOT/kc-base/releases/kc-base-1.1.0.bundle.json"
-aml="$MODELS_ROOT/archimate-lite/releases/archimate-lite-3.0.0.bundle.json"
+aml="$MODELS_ROOT/archimate-lite/releases/archimate-lite-3.1.0.bundle.json"
 ui_trav="$MODELS_ROOT/archimate-ui-traversal/releases/archimate-ui-traversal-1.0.0.bundle.json"
 
 for f in "$kc_base" "$aml" "$ui_trav"; do
@@ -29,7 +29,7 @@ echo "Importing kc-base 1.1.0 …"
 curl -sf "${auth[@]}" --data-binary @"$kc_base" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
-echo "Importing archimate-lite 3.0.0 …"
+echo "Importing archimate-lite 3.1.0 …"
 curl -sf "${auth[@]}" --data-binary @"$aml" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
@@ -65,7 +65,7 @@ curl -sf "${auth[@]}" -H "Idempotency-Key: itmap-org-demo" \
     "labels":{"en":"Org Demo","cs":"Org Demo"},
     "descriptions":{"en":"IT Map demo organization package","cs":"Demo package organizace IT Map"},
     "dependencies":[
-      {"dependsOnCode":"archimate-lite","versionRange":"^3.0.0"},
+      {"dependsOnCode":"archimate-lite","versionRange":"^3.1.0"},
       {"dependsOnCode":"archimate-ui-traversal","versionRange":"^1.0.0"}
     ]
   }' "$KC_URL/v1/packages" >/dev/null 2>&1 || true

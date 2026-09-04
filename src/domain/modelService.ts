@@ -387,7 +387,7 @@ export class ModelService {
     return res.changeSet;
   }
 
-  /** Labels (+ optional actorKind) as one logical ChangeSet — only changed fields are written. */
+  /** Labels (+ optional actorKind / organizationScope) as one logical ChangeSet. */
   async saveEntityBasics(opts: {
     id: string;
     labels?: Record<string, string>;
@@ -399,12 +399,18 @@ export class ModelService {
       existingStatement?: Statement;
       remove?: boolean;
     };
+    organizationScope?: {
+      newValue?: string;
+      existingStatement?: Statement;
+      remove?: boolean;
+    };
   }): Promise<ChangeSet | null> {
     const hasLabels = opts.labels !== undefined;
     const hasDescriptions = opts.descriptions !== undefined;
     const hasActorKind = opts.actorKind !== undefined;
+    const hasOrganizationScope = opts.organizationScope !== undefined;
 
-    if (!hasLabels && !hasDescriptions && !hasActorKind) {
+    if (!hasLabels && !hasDescriptions && !hasActorKind && !hasOrganizationScope) {
       return null;
     }
 
@@ -435,6 +441,21 @@ export class ModelService {
               propertyLocal: "actorKind",
               newValue: opts.actorKind.newValue,
               existingStatement: opts.actorKind.existingStatement,
+            });
+          }
+        }
+        if (hasOrganizationScope && opts.packageCode && opts.organizationScope) {
+          if (opts.organizationScope.remove && opts.organizationScope.existingStatement) {
+            await this.kc.deprecateStatement(opts.organizationScope.existingStatement.id, {
+              expectedRevision: opts.organizationScope.existingStatement.revisionNo,
+            });
+          } else if (opts.organizationScope.newValue) {
+            await this.replaceStringProperty({
+              packageCode: opts.packageCode,
+              subject: opts.id,
+              propertyLocal: "organizationScope",
+              newValue: opts.organizationScope.newValue,
+              existingStatement: opts.organizationScope.existingStatement,
             });
           }
         }
