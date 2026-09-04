@@ -11,7 +11,7 @@ Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
 - Node.js 20+
 - Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
 - Sibling checkout [`knowledge-models`](../knowledge-models) s bundley
-- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` 3.1.0 + `archimate-ui-traversal` 1.0.0
+- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` 3.1.0 + `archimate-ui-traversal` 1.0.0 + `archimate-ui-cards` 1.0.0
 
 ## Lokální spuštění s Knowledge Core (DEV)
 
@@ -48,8 +48,9 @@ npm run setup:seed
 1. `kc-base-1.1.0.bundle.json`
 2. `archimate-lite-3.1.0.bundle.json`
 3. `archimate-ui-traversal-1.0.0.bundle.json`
-4. volitelně demo loader `archimate-lite-demo`
-5. package `org-demo` (continuous, závislosti `archimate-lite ^3.1.0` + `archimate-ui-traversal ^1.0.0`)
+4. `archimate-ui-cards-1.0.0.bundle.json`
+5. volitelně demo loader `archimate-lite-demo`
+6. package `org-demo` (continuous, závislosti `archimate-lite ^3.1.0` + `archimate-ui-traversal ^1.0.0` + `archimate-ui-cards ^1.0.0`)
 
 Alternativa ručně (KC UI → Packages → Import release bundle) ve stejném pořadí.
 
@@ -78,6 +79,7 @@ Org package: vytvoř / vyber v **Packages** (`org-demo`).
 | Oblast | Funkce |
 |--------|--------|
 | Column browser | Traversal templates: Business exploration, Application impact, Infrastructure |
+| Karty | Read-only procházení po PresentationProfile kartách (`/cards`) |
 | Focus path | Breadcrumb grafem |
 | Inspector Basic | Název, popis, actorKind, organizationScope |
 | Inspector Extended | Statements, edit property, open-world nová property |
@@ -91,8 +93,8 @@ Org package: vytvoř / vyber v **Packages** (`org-demo`).
 ```text
 src/
   kc/           — HTTP klient, SchemaResolver, IRI migrace UI traversal
-  domain/       — templates, TraversalEngine, ModelService, navigation profiles
-  pages/        — Browser, Packages, Changes, Settings, Search, Navigation
+  domain/       — templates, TraversalEngine, ModelService, navigation profiles, cards
+  pages/        — Browser, Cards, Packages, Changes, Settings, Search, Navigation
   components/   — Inspector, AddDialog, Toast
 scripts/        — check-kc.sh, seed-demo.sh
 docs/           — funkční specifikace a návrhy
@@ -109,5 +111,5 @@ docs/           — funkční specifikace a návrhy
 ## Poznámky
 
 - Schema se resolvuje přes `iriLocal` — nikdy hardcoded Q/P z jiné instalace.
-- Doménový model: `archimate-lite` **3.1.0+**; UI traversal: package `archimate-ui-traversal`.
+- Doménový model: `archimate-lite` **3.1.0+**; UI traversal: `archimate-ui-traversal`; Karty: `archimate-ui-cards`.
 - Flow vyžaduje `flowLabel`; Association nabízí `associationKind`.

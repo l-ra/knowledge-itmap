@@ -8,6 +8,7 @@ import { ChangeSetsPage } from "@/pages/ChangeSetsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { NavigationConfigPage } from "@/pages/NavigationConfigPage";
+import { CardsPage } from "@/pages/CardsPage";
 
 function ChangeSetBar() {
   const {
@@ -103,6 +104,7 @@ function Shell() {
           <NavLink to="/" end>
             Browser
           </NavLink>
+          <NavLink to="/cards">Karty</NavLink>
           <NavLink to="/search">Search</NavLink>
           <NavLink to="/packages">Packages</NavLink>
           <NavLink to="/navigation">Navigace</NavLink>
@@ -113,6 +115,8 @@ function Shell() {
       <div className="page-outlet">
         <Routes>
           <Route path="/" element={<BrowserPage />} />
+          <Route path="/cards/:entityId" element={<CardsPage />} />
+          <Route path="/cards" element={<CardsPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/packages" element={<PackagesPage />} />
           <Route path="/navigation" element={<NavigationConfigPage />} />

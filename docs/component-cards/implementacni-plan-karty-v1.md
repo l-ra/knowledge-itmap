@@ -1,6 +1,6 @@
 # Implementační plán: režim Karty (v1)
 
-**Stav:** fáze A hotova (IT Map na AML 3.1.0); další B→C→D dle plánu  
+**Stav:** fáze A–D implementovány (v1 read-only Karty)  
 **Datum:** 2026-09-04  
 **Vychází z:** [rozhodnuti-v1.md](./rozhodnuti-v1.md), [koncept-karet-komponent.md](./koncept-karet-komponent.md)  
 **Prerekvizita:** archimate-lite **3.1.0** — **splněna** v `knowledge-models` (bundle + demo + UI traversal seed)
