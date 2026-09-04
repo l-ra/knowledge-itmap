@@ -95,7 +95,7 @@ export class NavigationProfileResolver {
 
       if (
         profileMeta.minCatalogVersion &&
-        !semverGte("2.3.0", profileMeta.minCatalogVersion)
+        !semverGte("3.0.0", profileMeta.minCatalogVersion)
       ) {
         warnings.push({
           severity: "warning",

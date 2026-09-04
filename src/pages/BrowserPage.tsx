@@ -636,7 +636,7 @@ export function BrowserPage() {
         <div className={`status-banner ${error ? "error" : ""}`}>
           {error
             ? `Knowledge Core nedostupné: ${error}. Spusťte KC (viz README) a zkontrolujte Settings.`
-            : "Načítám schema archimate-lite…"}
+            : "Načítám schema (archimate-lite + UI traversal)…"}
         </div>
       )}
 

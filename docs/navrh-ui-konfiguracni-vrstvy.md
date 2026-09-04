@@ -1,6 +1,8 @@
 # Návrh: UI konfigurační vrstva v archimate-lite
 
-**Stav:** Návrh k diskusi (před rozhodnutím o zařazení do 2.1.0 nebo 2.2.0)  
+**Stav:** Historický návrh (srpen 2026) — **rozhodnutí supersedováno**  
+**Výsledek (září 2026):** UI traversal žije v package **`archimate-ui-traversal` 1.0.0** (blízké variantě C níže), doménový model v **`archimate-lite` 3.0.0**, artefakty v **`knowledge-models`**. Aktuální popis: [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md).
+
 **Kontext:** IT Map — column browser, traversal templates, odvozování vztahů
 
 **Související:** [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md) — popis aktuální implementace procházení grafem

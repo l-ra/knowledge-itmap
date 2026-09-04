@@ -1,7 +1,14 @@
 import { getKc, type KcClient } from "./client";
 import type { Entity, PropertyEntity, SchemaConfig } from "./types";
+import {
+  ARCHIMATE_LITE_PKG,
+  UI_TRAVERSAL_PKG,
+  indexWithUiTraversalAliases,
+  rewriteUiTraversalIri,
+} from "./uiTraversalIriMigration";
 
-const AML = "archimate-lite";
+const AML = ARCHIMATE_LITE_PKG;
+const UI_TRAV = UI_TRAVERSAL_PKG;
 const KC_BASE = "kc-base";
 
 export interface SchemaSnapshot {
@@ -64,9 +71,17 @@ export class SchemaResolver {
       );
     }
 
-    const [classes, properties] = await Promise.all([
+    const [amlClasses, amlProperties, uiClasses, uiProperties] = await Promise.all([
       this.loadAllKind(AML, "class"),
       this.loadAllKind(AML, "property") as Promise<PropertyEntity[]>,
+      this.loadAllKind(UI_TRAV, "class").catch((e) => {
+        console.warn("archimate-ui-traversal classes load skipped:", e);
+        return [] as Entity[];
+      }),
+      this.loadAllKind(UI_TRAV, "property").catch((e) => {
+        console.warn("archimate-ui-traversal properties load skipped:", e);
+        return [] as PropertyEntity[];
+      }) as Promise<PropertyEntity[]>,
     ]);
 
     let allowedRows: AllowedRel[] = [];
@@ -81,21 +96,21 @@ export class SchemaResolver {
 
     const classesByLocal = new Map<string, Entity>();
     const classIriToLocal = new Map<string, string>();
-    for (const c of classes) {
+    for (const c of [...amlClasses, ...uiClasses]) {
       if (c.iriLocal) {
         classesByLocal.set(c.iriLocal, c);
-        classIriToLocal.set(c.id, c.iriLocal);
-        if (c.iri) classIriToLocal.set(c.iri, c.iriLocal);
+        indexWithUiTraversalAliases(classIriToLocal, c.iriLocal, c.id);
+        if (c.iri) indexWithUiTraversalAliases(classIriToLocal, c.iriLocal, c.iri);
       }
     }
 
     const propertiesByLocal = new Map<string, PropertyEntity>();
     const propertyIriToLocal = new Map<string, string>();
-    for (const p of [...properties, ...baseProps]) {
+    for (const p of [...amlProperties, ...uiProperties, ...baseProps]) {
       if (p.iriLocal) {
         propertiesByLocal.set(p.iriLocal, p);
-        propertyIriToLocal.set(p.id, p.iriLocal);
-        if (p.iri) propertyIriToLocal.set(p.iri, p.iriLocal);
+        indexWithUiTraversalAliases(propertyIriToLocal, p.iriLocal, p.id);
+        if (p.iri) indexWithUiTraversalAliases(propertyIriToLocal, p.iriLocal, p.iri);
       }
     }
 
@@ -139,11 +154,15 @@ export class SchemaResolver {
   }
 
   classLocal(iri: string): string | undefined {
-    return this.snapshot.classIriToLocal.get(iri);
+    const snap = this.snapshot;
+    return snap.classIriToLocal.get(iri) || snap.classIriToLocal.get(rewriteUiTraversalIri(iri));
   }
 
   propertyLocal(iri: string): string | undefined {
-    return this.snapshot.propertyIriToLocal.get(iri);
+    const snap = this.snapshot;
+    return (
+      snap.propertyIriToLocal.get(iri) || snap.propertyIriToLocal.get(rewriteUiTraversalIri(iri))
+    );
   }
 
   classLabel(local: string): string {

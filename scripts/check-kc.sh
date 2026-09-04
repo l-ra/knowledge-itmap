@@ -15,7 +15,7 @@ if [[ "$code" != "200" ]]; then
   echo "  export KC_AUTH_MODE=bootstrap"
   echo "  make dev   # API http://localhost:8080"
   echo ""
-  echo "See: knowledge-core/README.md and models/archimate-lite/README.md"
+  echo "See: knowledge-core/README.md and ../knowledge-models/README.md"
   exit 1
 fi
 echo "OK: healthz"

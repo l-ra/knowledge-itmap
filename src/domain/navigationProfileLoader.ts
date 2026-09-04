@@ -1,6 +1,11 @@
 import { getKc, type KcClient } from "../kc/client";
 import { getSchema, type SchemaResolver } from "../kc/schema";
 import type { Entity, Statement, StatementValue } from "../kc/types";
+import {
+  ARCHIMATE_LITE_PKG,
+  UI_TRAVERSAL_PKG,
+  rewriteUiTraversalIri,
+} from "../kc/uiTraversalIriMigration";
 import type {
   ProfileBundle,
   TemplateBundle,
@@ -10,8 +15,6 @@ import type {
   UiTraversalTemplateMeta,
   UiTransitionMeta,
 } from "./navigationProfileTypes";
-
-const AML = "archimate-lite";
 
 function stringVal(v: StatementValue | undefined): string | undefined {
   if (!v) return undefined;
@@ -80,15 +83,18 @@ export class NavigationProfileLoader {
   async findSystemProfile(): Promise<UiNavigationProfileMeta | null> {
     const cls = await this.classId("UiNavigationProfile");
     if (!cls) return null;
-    const page = await this.kc.listEntities({
-      package: AML,
-      instanceOf: cls,
-      includeSubclasses: true,
-      limit: 50,
-    });
-    for (const ent of page.items) {
-      const meta = await this.loadProfileMeta(ent);
-      if (meta.isSystemDefault) return meta;
+    // Prefer archimate-ui-traversal (1.0.0+); fall back to legacy archimate-lite seed.
+    for (const pkg of [UI_TRAVERSAL_PKG, ARCHIMATE_LITE_PKG]) {
+      const page = await this.kc.listEntities({
+        package: pkg,
+        instanceOf: cls,
+        includeSubclasses: true,
+        limit: 50,
+      });
+      for (const ent of page.items) {
+        const meta = await this.loadProfileMeta(ent);
+        if (meta.isSystemDefault) return meta;
+      }
     }
     return null;
   }
@@ -112,7 +118,7 @@ export class NavigationProfileLoader {
 
   async loadProfileMeta(entityOrId: Entity | string): Promise<UiNavigationProfileMeta> {
     const ent =
-      typeof entityOrId === "string" ? await this.kc.getEntity(entityOrId) : entityOrId;
+      typeof entityOrId === "string" ? await this.getEntityMaybeMigrated(entityOrId) : entityOrId;
     const stmts = await this.statements(ent.id);
     const byProp = this.byPropertyLocal(stmts);
 
@@ -140,10 +146,11 @@ export class NavigationProfileLoader {
   async loadTemplatesForProfile(profileId: string): Promise<TemplateBundle[]> {
     const prop = await this.propId("parentProfile");
     if (!prop) return [];
-    const incoming = await this.kc.getIncoming(profileId, prop);
+    const resolvedProfileId = (await this.getEntityMaybeMigrated(profileId)).id;
+    const incoming = await this.kc.getIncoming(resolvedProfileId, prop);
     const bundles: TemplateBundle[] = [];
     for (const stmt of incoming.items) {
-      const tplEnt = await this.kc.getEntity(stmt.subject);
+      const tplEnt = await this.getEntityMaybeMigrated(stmt.subject);
       bundles.push(await this.loadTemplateBundle(tplEnt));
     }
     bundles.sort((a, b) => (a.meta.sortOrder ?? 0) - (b.meta.sortOrder ?? 0));
@@ -152,7 +159,7 @@ export class NavigationProfileLoader {
 
   async loadTemplateBundle(entityOrId: Entity | string): Promise<TemplateBundle> {
     const ent =
-      typeof entityOrId === "string" ? await this.kc.getEntity(entityOrId) : entityOrId;
+      typeof entityOrId === "string" ? await this.getEntityMaybeMigrated(entityOrId) : entityOrId;
     const meta = await this.loadTemplateMeta(ent);
     const [stages, transitions, addActions] = await Promise.all([
       this.loadStagesForTemplate(ent.id),
@@ -164,7 +171,7 @@ export class NavigationProfileLoader {
 
   async loadTemplateMeta(entityOrId: Entity | string): Promise<UiTraversalTemplateMeta> {
     const ent =
-      typeof entityOrId === "string" ? await this.kc.getEntity(entityOrId) : entityOrId;
+      typeof entityOrId === "string" ? await this.getEntityMaybeMigrated(entityOrId) : entityOrId;
     const stmts = await this.statements(ent.id);
     const byProp = this.byPropertyLocal(stmts);
 
@@ -184,10 +191,11 @@ export class NavigationProfileLoader {
   async loadStagesForTemplate(templateId: string): Promise<UiStageMeta[]> {
     const prop = await this.propId("parentTemplate");
     if (!prop) return [];
-    const incoming = await this.kc.getIncoming(templateId, prop);
+    const resolvedTemplateId = (await this.getEntityMaybeMigrated(templateId)).id;
+    const incoming = await this.kc.getIncoming(resolvedTemplateId, prop);
     const stages: UiStageMeta[] = [];
     for (const stmt of incoming.items) {
-      const ent = await this.kc.getEntity(stmt.subject);
+      const ent = await this.getEntityMaybeMigrated(stmt.subject);
       const classLocal = await this.entityClassLocal(ent);
       if (classLocal !== "UiStage") continue;
       stages.push(await this.loadStageMeta(ent));
@@ -198,7 +206,7 @@ export class NavigationProfileLoader {
 
   async loadStageMeta(entityOrId: Entity | string): Promise<UiStageMeta> {
     const ent =
-      typeof entityOrId === "string" ? await this.kc.getEntity(entityOrId) : entityOrId;
+      typeof entityOrId === "string" ? await this.getEntityMaybeMigrated(entityOrId) : entityOrId;
     const stmts = await this.statements(ent.id);
     const byProp = this.byPropertyLocal(stmts);
 
@@ -227,10 +235,11 @@ export class NavigationProfileLoader {
   async loadTransitionsForTemplate(templateId: string): Promise<UiTransitionMeta[]> {
     const prop = await this.propId("parentTemplate");
     if (!prop) return [];
-    const incoming = await this.kc.getIncoming(templateId, prop);
+    const resolvedTemplateId = (await this.getEntityMaybeMigrated(templateId)).id;
+    const incoming = await this.kc.getIncoming(resolvedTemplateId, prop);
     const transitions: UiTransitionMeta[] = [];
     for (const stmt of incoming.items) {
-      const ent = await this.kc.getEntity(stmt.subject);
+      const ent = await this.getEntityMaybeMigrated(stmt.subject);
       const classLocal = await this.entityClassLocal(ent);
       if (classLocal !== "UiTransition") continue;
       transitions.push(await this.loadTransitionMeta(ent));
@@ -240,7 +249,7 @@ export class NavigationProfileLoader {
 
   async loadTransitionMeta(entityOrId: Entity | string): Promise<UiTransitionMeta> {
     const ent =
-      typeof entityOrId === "string" ? await this.kc.getEntity(entityOrId) : entityOrId;
+      typeof entityOrId === "string" ? await this.getEntityMaybeMigrated(entityOrId) : entityOrId;
     const stmts = await this.statements(ent.id);
     const byProp = this.byPropertyLocal(stmts);
 
@@ -265,10 +274,11 @@ export class NavigationProfileLoader {
   async loadAddActionsForTemplate(templateId: string): Promise<UiAddActionMeta[]> {
     const prop = await this.propId("parentTemplate");
     if (!prop) return [];
-    const incoming = await this.kc.getIncoming(templateId, prop);
+    const resolvedTemplateId = (await this.getEntityMaybeMigrated(templateId)).id;
+    const incoming = await this.kc.getIncoming(resolvedTemplateId, prop);
     const actions: UiAddActionMeta[] = [];
     for (const stmt of incoming.items) {
-      const ent = await this.kc.getEntity(stmt.subject);
+      const ent = await this.getEntityMaybeMigrated(stmt.subject);
       const classLocal = await this.entityClassLocal(ent);
       if (classLocal !== "UiAddAction") continue;
       actions.push(await this.loadAddActionMeta(ent));
@@ -279,7 +289,7 @@ export class NavigationProfileLoader {
 
   async loadAddActionMeta(entityOrId: Entity | string): Promise<UiAddActionMeta> {
     const ent =
-      typeof entityOrId === "string" ? await this.kc.getEntity(entityOrId) : entityOrId;
+      typeof entityOrId === "string" ? await this.getEntityMaybeMigrated(entityOrId) : entityOrId;
     const stmts = await this.statements(ent.id);
     const byProp = this.byPropertyLocal(stmts);
 
@@ -336,6 +346,17 @@ export class NavigationProfileLoader {
     this.stmtCache.clear();
   }
 
+  /** Resolve entity; if missing, retry after UI-traversal IRI migration rewrite. */
+  private async getEntityMaybeMigrated(id: string): Promise<Entity> {
+    try {
+      return await this.kc.getEntity(id);
+    } catch (first) {
+      const rewritten = rewriteUiTraversalIri(id);
+      if (rewritten === id) throw first;
+      return await this.kc.getEntity(rewritten);
+    }
+  }
+
   private async statements(entityId: string): Promise<Statement[]> {
     const cached = this.stmtCache.get(entityId);
     if (cached) return cached;
@@ -378,13 +399,22 @@ export class NavigationProfileLoader {
 
   private async classLocalFromRef(entityId: string): Promise<string | undefined> {
     const snap = this.schema.snapshot;
-    const direct = snap.classIriToLocal.get(entityId);
+    const rewritten = rewriteUiTraversalIri(entityId);
+    const direct = snap.classIriToLocal.get(entityId) || snap.classIriToLocal.get(rewritten);
     if (direct) return direct;
     try {
-      const ent = await this.kc.getEntity(entityId);
+      const ent = await this.kc.getEntity(rewritten !== entityId ? rewritten : entityId);
       if (ent.iriLocal && snap.classesByLocal.has(ent.iriLocal)) return ent.iriLocal;
       return ent.iriLocal;
     } catch {
+      if (rewritten !== entityId) {
+        try {
+          const ent = await this.kc.getEntity(entityId);
+          return ent.iriLocal;
+        } catch {
+          return undefined;
+        }
+      }
       return undefined;
     }
   }
@@ -393,7 +423,8 @@ export class NavigationProfileLoader {
     const snap = this.schema.snapshot;
     if (ent.effectiveClasses?.length) {
       for (const c of ent.effectiveClasses) {
-        const local = snap.classIriToLocal.get(c);
+        const local =
+          snap.classIriToLocal.get(c) || snap.classIriToLocal.get(rewriteUiTraversalIri(c));
         if (local?.startsWith("Ui")) return local;
       }
     }
@@ -401,7 +432,9 @@ export class NavigationProfileLoader {
     for (const s of stmts) {
       if (s.property !== snap.instanceOfProperty) continue;
       if (s.value.type !== "EntityReference") continue;
-      const local = snap.classIriToLocal.get(s.value.entityId);
+      const id = s.value.entityId;
+      const local =
+        snap.classIriToLocal.get(id) || snap.classIriToLocal.get(rewriteUiTraversalIri(id));
       if (local) return local;
     }
     return undefined;

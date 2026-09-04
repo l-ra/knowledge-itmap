@@ -439,7 +439,7 @@ export class NavigationProfileService {
     });
     await this.setString(packageCode, id, "profileCode", opts.profileCode);
     await this.setString(packageCode, id, "profileVersion", "1.0.0");
-    await this.setString(packageCode, id, "minCatalogVersion", "2.3.0");
+    await this.setString(packageCode, id, "minCatalogVersion", "3.0.0");
     await this.setString(packageCode, id, "labelCs", opts.labelCs);
     if (opts.parentProfileId) {
       await this.setEntityRef(packageCode, id, "parentProfile", opts.parentProfileId);

@@ -1,6 +1,8 @@
 # Implementační plán: konfigurace traversalu přes metadata v KC
 
-**Stav:** Implementováno (fáze 1–5, srpen 2026)  
+**Stav:** Historický plán (fáze 1–5 splněny v archimate-lite 2.3.x, srpen 2026)  
+**Aktualizace (září 2026):** `Ui*` slovník a seed přesunuty do package **`archimate-ui-traversal` 1.0.0**; bundly žijí v **`knowledge-models`** (ne v `knowledge-core`). Aktuální chování: [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md). IRI mapa: [`../knowledge-models/migrations/`](../../knowledge-models/migrations/).
+
 **Datum:** 2026-08-28  
 **Kontext:** Přesun topologie column browseru z hardcoded `templates.ts` do deklarativních dat v Knowledge Core
 
@@ -574,12 +576,13 @@ Testovací data: rozšířit `seed-demo.sh` o volitelný `org-demo-nav` profil s
 
 | Fáze | Stav |
 |------|------|
-| 1 — Metamodel + seed (knowledge-core 2.3.0) | ✅ |
+| 1 — Metamodel + seed (archimate-lite 2.3.0) | ✅ (později přesunuto do `archimate-ui-traversal` 1.0.0) |
 | 2 — Resolver + Browser z KC | ✅ |
 | 3 — Vazba org profilu | ✅ |
 | 4 — Editor pravidel (`/navigation`) | ✅ |
 | 5 — Seed, docs, fallback | ✅ |
+| 6 — Split UI package + `knowledge-models` | ✅ (září 2026) |
 
 ---
 
-*Dokument navazuje na [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md) (Varianta B) a rozšiřuje ho o vazbu na org package, merge logiku a konkrétní UI v IT Map.*
+*Dokument navazuje na [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md) (Varianta B). Následný split do samostatného package odpovídá dřívější „variantě C“ pod názvem `archimate-ui-traversal` — viz aktuální [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md).*

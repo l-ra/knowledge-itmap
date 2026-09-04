@@ -1,13 +1,15 @@
 # Funkční specifikace — IT Map (Organization Architecture Editor)
 
-**Verze:** 0.3 (návrh ke schválení)  
-**Datum:** 2026-08-26  
-**Stav:** Draft  
+**Verze:** 0.4  
+**Datum:** 2026-09-04  
+**Stav:** Draft (aktualizace package layout)
+
+> **Aktuální layout modelů (září 2026):** Doménové bundly jsou v sibling repo [`knowledge-models`](../../knowledge-models/) (`kc-base` 1.1.0, `archimate-lite` 3.0.0, `archimate-ui-traversal` 1.0.0). UI traversal metadata **nejsou** součástí `archimate-lite`. Kapitoly níže o „vše v archimate-lite / knowledge-core“ popisují původní plán 2.1.0 — pro živý kontrakt navigace viz [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md).
 
 **Související dokumenty:**
 - [`koncept-prochazeni-grafem.md`](koncept-prochazeni-grafem.md) — popis traversal templates, TraversalEngine a hranice kód vs. metadata
-- [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) — přesný checklist rozšíření KC (včetně network/flow)
-- [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md) — návrh UI konfigurační vrstvy (k diskusi)
+- [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) — checklist doménového rozšíření (historický)
+- [`navrh-ui-konfiguracni-vrstvy.md`](navrh-ui-konfiguracni-vrstvy.md) — historický návrh UI konfigurační vrstvy
 
 ---
 
@@ -20,9 +22,7 @@ Tento dokument specifikuje aplikaci pro **modelování organizace v plné hloubc
 
 Aplikace je **doménově specializovaný editor** typu *Organization → Responsibility → Application → Infrastructure*, nikoli obecný ArchiMate kreslicí nástroj. Uživatel popisuje realitu v business jazyce; systém pod ním udržuje validní ArchiMate graf v **Knowledge Core (KC)**.
 
-Dokument slouží k **schválení konceptu**, rozsahu a implementačního plánu. Klíčový předpoklad:
-
-> **Implementace aplikace (repozitář `knowledge-itmap`) začne až po dokončení a release rozšíření metamodelu `archimate-lite` v repozitáři `knowledge-core`.**
+Dokument sloužil k **schválení konceptu**, rozsahu a implementačního plánu. Původní předpoklad (doménový release v `knowledge-core`) je splněn; modely se od té doby přesunuly do `knowledge-models`.
 
 ---
 
@@ -144,10 +144,13 @@ Aplikace respektuje granularitu L0–L4 dle archimate-lite (`modelingDepth`). Sl
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ kc-base (release 1.0.0)          — foundation, instanceOf   │
+│ kc-base (release 1.1.0)          — foundation, instanceOf   │
 ├─────────────────────────────────────────────────────────────┤
-│ archimate-lite (release ≥ 2.1.0) — ArchiMate + org metodika │
+│ archimate-lite (release ≥ 3.0.0) — ArchiMate + org metodika │
 │   BusinessFunction, actorKind, associationKind, …           │
+├─────────────────────────────────────────────────────────────┤
+│ archimate-ui-traversal (≥ 1.0.0) — IT Map navigační profil  │
+│   UiNavigationProfile, UiStage, UiTransition, …             │
 ├─────────────────────────────────────────────────────────────┤
 │ org-{code} (continuous)          — instance organizace      │
 │   entity + statementy modelu                                  │
@@ -158,9 +161,10 @@ Aplikace respektuje granularitu L0–L4 dle archimate-lite (`modelingDepth`). Sl
 |---------|-----------|-------|
 | `kc-base` | import bundle | Typing, StringEnum, usage anotace |
 | `archimate-lite` | `released` | Třídy, properties, AllowedRelationship, shapes, enumy |
+| `archimate-ui-traversal` | `released` | UI traversal slovník + systémový seed profil |
 | `org-{tenant}` | `continuous` | Konkrétní model organizace |
 
-**Žádný separátní extension package.** Veškerá metodická rozšíření patří do `archimate-lite` v repozitáři `knowledge-core`.
+Bundly a catalogy: repo **`knowledge-models`** (Go služba `knowledge-core` je runtime). Doménová metodika zůstává v `archimate-lite`; navigační metadata jsou **samostatný** package.
 
 Závislost instance package:
 
@@ -170,14 +174,15 @@ Závislost instance package:
   "lifecycle": "continuous",
   "iriBase": "https://example.org/org/ote/",
   "dependencies": [
-    { "dependsOnCode": "archimate-lite", "versionRange": "^2.1.0" }
+    { "dependsOnCode": "archimate-lite", "versionRange": "^3.0.0" },
+    { "dependsOnCode": "archimate-ui-traversal", "versionRange": "^1.0.0" }
   ]
 }
 ```
 
-### 4.2 Předpoklad: archimate-lite ≥ 2.1.0
+### 4.2 Předpoklad: archimate-lite ≥ 3.0.0 + archimate-ui-traversal ≥ 1.0.0
 
-Aplikace **vyžaduje** release `archimate-lite` verze **2.1.0 nebo vyšší** s doplněním specifikovaným v §5. Do té doby se v `knowledge-itmap` neimplementuje produkční editace — pouze příprava (prototyp UI, KC klient) na mock datech.
+Aplikace **vyžaduje** `archimate-lite` **3.0.0+** (doména bez UI metadat) a **`archimate-ui-traversal` 1.0.0+** (navigační profil). Doménový checklist 2.1.0 je v [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) (historicky implementován; aktuální release je 3.0.0).
 
 ### 4.3 Reprezentace prvků a vztahů v KC
 
@@ -223,10 +228,9 @@ Aplikace v režimu „Rozšířený pohled“:
 
 ---
 
-## 5. Zadání pro doplnění archimate-lite (knowledge-core)
+## 5. Zadání pro doplnění archimate-lite (historické)
 
-> **Tato kapitola je samostatné zadání pro první krok projektu v repozitáři `knowledge-core`.**  
-> Implementace aplikace IT Map na něm přímo závisí a nesmí být spuštěna dříve, než je release publikován a importován.  
+> **Historické zadání pro doménový release 2.1.0.** Dnes žije v `knowledge-models/archimate-lite` (aktuálně **3.0.0**). UI traversal sem **nepatří** — viz `archimate-ui-traversal`.  
 > **Autoritativní checklist:** [`archimate-lite-2.1.0-rozsireni-vycet.md`](archimate-lite-2.1.0-rozsireni-vycet.md) (~51 additive položek včetně network/flow).
 
 ### 5.1 Cíl
@@ -235,9 +239,9 @@ Rozšířit package `archimate-lite` o prvky potřebné pro **modelování organ
 
 | Parametr | Hodnota |
 |----------|---------|
-| Cílová verze | **2.1.0** |
-| Repozitář | `knowledge-core` |
-| Artefakty | `models/archimate-lite/catalog.json`, `build_bundle.py`, release bundle, `load.py`, dokumentace |
+| Cílová verze | **2.1.0** (tehdy; dnes supersedováno 3.0.0) |
+| Repozitář | tehdy `knowledge-core` → dnes **`knowledge-models`** |
+| Artefakty | `archimate-lite/catalog.json`, `build_bundle.py`, release bundle, `load.py`, dokumentace |
 | Typ změn | Additive (nové třídy, properties, enumy, AllowedRelationship, shapes) |
 | Breaking changes | **Ne** — stávající instance a nástroje na 2.0.0 musí zůstat validní |
 
@@ -407,7 +411,7 @@ Příklady:
                             │ REST /v1/*
 ┌───────────────────────────▼──────────────────────────────────┐
 │  Knowledge Core                                              │
-│  archimate-lite ≥ 2.1.0 · org-{tenant} instance packages     │
+│  archimate-lite ≥ 3.0.0 · archimate-ui-traversal ≥ 1.0.0 · org-* │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -832,4 +836,4 @@ Návrh, zda a jak řídit skládání column browseru z metamodelu: [`navrh-ui-k
 
 ---
 
-*Verze 0.3 — rozšíření archimate-lite v knowledge-core jako první krok; aplikace IT Map navazuje po splnění gate §9.0.*
+*Verze 0.4 — packages v `knowledge-models`; UI traversal oddělen do `archimate-ui-traversal`; doménový checklist §5 zůstává historickým zadáním 2.1.0.*

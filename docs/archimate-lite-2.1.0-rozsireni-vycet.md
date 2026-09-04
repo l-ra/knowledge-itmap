@@ -1,8 +1,11 @@
 # archimate-lite 2.1.0 — přesný výčet rozšíření
 
-**Účel:** Checklist pro implementaci v repozitáři `knowledge-core` **před** startem aplikace IT Map.  
-**Základ:** `archimate-lite-2.0.0` · **Cíl:** `archimate-lite-2.1.0` (additive, bez breaking changes)  
-**Související:** [`funkcni-specifikace.md`](funkcni-specifikace.md) §5
+**Účel:** Checklist pro implementaci doménového rozšíření **před** startem aplikace IT Map (historický dokument).  
+**Základ:** `archimate-lite-2.0.0` · **Cíl tehdy:** `archimate-lite-2.1.0` (additive, bez breaking changes)
+
+> **Aktuálně (září 2026):** Artefakty jsou v [`knowledge-models`](../../knowledge-models/) (`archimate-lite` **3.0.0** bez UI metadat). UI traversal: package `archimate-ui-traversal`. Cesty typu `models/archimate-lite/…` níže odkazují na tehdejší layout v `knowledge-core`.
+
+---**Související:** [`funkcni-specifikace.md`](funkcni-specifikace.md) §5
 
 Legenda stavu:
 - **NOVÉ** — v 2.0.0 neexistuje, nutno přidat

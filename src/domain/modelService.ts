@@ -493,7 +493,10 @@ export class ModelService {
         // Labels land on package-root entity (class Package); KC syncs package.labels.
         labels: { en: label, cs: label },
         descriptions: description ? { en: description, cs: description } : undefined,
-        dependencies: [{ dependsOnCode: "archimate-lite", versionRange: "^2.3.0" }],
+        dependencies: [
+          { dependsOnCode: "archimate-lite", versionRange: "^3.0.0" },
+          { dependsOnCode: "archimate-ui-traversal", versionRange: "^1.0.0" },
+        ],
       });
       return res.data;
     }

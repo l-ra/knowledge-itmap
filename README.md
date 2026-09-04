@@ -1,6 +1,7 @@
 # IT Map — Organization Architecture Editor
 
-Doménově specializovaný editor nad **Knowledge Core** a metamodelem **archimate-lite ≥ 2.3.0**.
+Doménově specializovaný editor nad **Knowledge Core**, metamodelem **archimate-lite ≥ 3.0.0**
+a navigačním package **archimate-ui-traversal ≥ 1.0.0**.
 Uživatel prochází a edituje model organizace ve sloupcovém browseru (Organization → … → Network / Location).
 
 Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
@@ -9,13 +10,14 @@ Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
 
 - Node.js 20+
 - Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
-- Naimportované packages: `kc-base` 1.0.0 + `archimate-lite` 2.3.0
+- Sibling checkout [`knowledge-models`](../knowledge-models) s bundley
+- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` 3.0.0 + `archimate-ui-traversal` 1.0.0
 
 ## Lokální spuštění s Knowledge Core (DEV)
 
 ### 1. Spusť Knowledge Core
 
-Dle [knowledge-core/README.md](../knowledge-core/README.md) a [models/archimate-lite/README.md](../knowledge-core/models/archimate-lite/README.md):
+Dle [knowledge-core/README.md](../knowledge-core/README.md) a [knowledge-models/README.md](../knowledge-models/README.md):
 
 ```bash
 cd /home/rasekl/src/knowledge-core
@@ -36,19 +38,24 @@ Bootstrap heslo: výpis při prvním startu / soubor v kontejneru `/data/admin.p
 ```bash
 cd /home/rasekl/src/knowledge-itmap
 export KC_TOKEN='<bootstrap-heslo>'
-export KC_ROOT=/home/rasekl/src/knowledge-core   # default: ../knowledge-core
+export KNOWLEDGE_MODELS_PATH=/home/rasekl/src/knowledge-models   # default: ../knowledge-models
 npm run setup:check
 npm run setup:seed
 ```
 
 `setup:seed` importuje:
 
-1. `kc-base-1.0.0.bundle.json`
-2. `archimate-lite-2.3.0.bundle.json`
-3. volitelně demo loader `archimate-lite-demo`
-4. package `org-demo` (continuous, závislost `archimate-lite ^2.3.0`)
+1. `kc-base-1.1.0.bundle.json`
+2. `archimate-lite-3.0.0.bundle.json`
+3. `archimate-ui-traversal-1.0.0.bundle.json`
+4. volitelně demo loader `archimate-lite-demo`
+5. package `org-demo` (continuous, závislosti `archimate-lite ^3.0.0` + `archimate-ui-traversal ^1.0.0`)
 
 Alternativa ručně (KC UI → Packages → Import release bundle) ve stejném pořadí.
+
+> **Migrace z 2.3.1:** UI metadata IRI se přesunula do `archimate-ui-traversal`.
+> Klientská mapa: [`knowledge-models/migrations/`](../knowledge-models/migrations/).
+> Neimportujte `archimate-lite@3.0.0` přes existující `2.3.1` (`compat_breaking`).
 
 ### 3. Spusť IT Map
 
@@ -83,9 +90,9 @@ Org package: vytvoř / vyber v **Packages** (`org-demo`).
 
 ```text
 src/
-  kc/           — HTTP klient, SchemaResolver
-  domain/       — templates, TraversalEngine, ModelService
-  pages/        — Browser, Packages, Changes, Settings, Search
+  kc/           — HTTP klient, SchemaResolver, IRI migrace UI traversal
+  domain/       — templates, TraversalEngine, ModelService, navigation profiles
+  pages/        — Browser, Packages, Changes, Settings, Search, Navigation
   components/   — Inspector, AddDialog, Toast
 scripts/        — check-kc.sh, seed-demo.sh
 docs/           — funkční specifikace a návrhy
@@ -102,5 +109,5 @@ docs/           — funkční specifikace a návrhy
 ## Poznámky
 
 - Schema se resolvuje přes `iriLocal` — nikdy hardcoded Q/P z jiné instalace.
-- Vyžaduje `archimate-lite` **2.1.0+** (`BusinessFunction`, `actorKind`, `flowLabel`, …).
+- Doménový model: `archimate-lite` **3.0.0+**; UI traversal: package `archimate-ui-traversal`.
 - Flow vyžaduje `flowLabel`; Association nabízí `associationKind`.

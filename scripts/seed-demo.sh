@@ -1,34 +1,40 @@
 #!/usr/bin/env bash
-# Import kc-base + archimate-lite 2.3.0 and optional demo seed into local Knowledge Core.
+# Import kc-base + archimate-lite 3.0.0 + archimate-ui-traversal 1.0.0
+# and optional demo seed into local Knowledge Core.
+# Bundles live in sibling repo knowledge-models (not knowledge-core).
 set -euo pipefail
 
 KC_URL="${KC_BASE_URL:-http://localhost:8080}"
-KC_ROOT="${KC_ROOT:-$(cd "$(dirname "$0")/../../knowledge-core" && pwd)}"
+MODELS_ROOT="${KNOWLEDGE_MODELS_PATH:-${MODELS_ROOT:-$(cd "$(dirname "$0")/../../knowledge-models" && pwd)}}"
 TOKEN="${KC_TOKEN:?Set KC_TOKEN to bootstrap password or Bearer token}"
 
 auth=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
 
-echo "KC_ROOT=$KC_ROOT"
+echo "MODELS_ROOT=$MODELS_ROOT"
 echo "KC_URL=$KC_URL"
 
-kc_base="$KC_ROOT/models/kc-base/releases/kc-base-1.0.0.bundle.json"
-aml="$KC_ROOT/models/archimate-lite/releases/archimate-lite-2.3.0.bundle.json"
+kc_base="$MODELS_ROOT/kc-base/releases/kc-base-1.1.0.bundle.json"
+aml="$MODELS_ROOT/archimate-lite/releases/archimate-lite-3.0.0.bundle.json"
+ui_trav="$MODELS_ROOT/archimate-ui-traversal/releases/archimate-ui-traversal-1.0.0.bundle.json"
 
-if [[ ! -f "$kc_base" ]]; then
-  echo "Missing $kc_base"
-  exit 1
-fi
-if [[ ! -f "$aml" ]]; then
-  echo "Missing $aml"
-  exit 1
-fi
+for f in "$kc_base" "$aml" "$ui_trav"; do
+  if [[ ! -f "$f" ]]; then
+    echo "Missing $f"
+    echo "Checkout knowledge-models next to knowledge-core (or set KNOWLEDGE_MODELS_PATH)."
+    exit 1
+  fi
+done
 
-echo "Importing kc-base 1.0.0 …"
+echo "Importing kc-base 1.1.0 …"
 curl -sf "${auth[@]}" --data-binary @"$kc_base" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
-echo "Importing archimate-lite 2.3.0 …"
+echo "Importing archimate-lite 3.0.0 …"
 curl -sf "${auth[@]}" --data-binary @"$aml" "$KC_URL/v1/releases/import" | head -c 200
+echo ""
+
+echo "Importing archimate-ui-traversal 1.0.0 …"
+curl -sf "${auth[@]}" --data-binary @"$ui_trav" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
 # Ensure instanceOfProperty if empty
@@ -40,11 +46,11 @@ if echo "$cfg" | grep -q '"instanceOfProperty":\s*""\|"instanceOfProperty":\s*nu
   echo ""
 fi
 
-if [[ "${SEED_DEMO:-1}" == "1" ]] && [[ -f "$KC_ROOT/models/archimate-lite-demo/load.py" ]]; then
+if [[ "${SEED_DEMO:-1}" == "1" ]] && [[ -f "$MODELS_ROOT/archimate-lite-demo/load.py" ]]; then
   echo "Loading demo instance (archimate-lite-demo) …"
   export KC_BASE_URL="$KC_URL"
   export KC_TOKEN="$TOKEN"
-  (cd "$KC_ROOT" && python3 models/archimate-lite-demo/load.py) || {
+  (cd "$MODELS_ROOT" && python3 archimate-lite-demo/load.py) || {
     echo "Demo loader failed — metamodel is imported; create org package in IT Map UI."
   }
 fi
@@ -58,7 +64,10 @@ curl -sf "${auth[@]}" -H "Idempotency-Key: itmap-org-demo" \
     "iriBase":"https://example.org/org-demo/",
     "labels":{"en":"Org Demo","cs":"Org Demo"},
     "descriptions":{"en":"IT Map demo organization package","cs":"Demo package organizace IT Map"},
-    "dependencies":[{"dependsOnCode":"archimate-lite","versionRange":"^2.3.0"}]
+    "dependencies":[
+      {"dependsOnCode":"archimate-lite","versionRange":"^3.0.0"},
+      {"dependsOnCode":"archimate-ui-traversal","versionRange":"^1.0.0"}
+    ]
   }' "$KC_URL/v1/packages" >/dev/null 2>&1 || true
 
 echo "Done. Open IT Map (npm run dev) → Settings → set token → Browser."
