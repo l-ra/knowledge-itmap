@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Import kc-base + archimate-lite 3.1.0 + archimate-ui-traversal 1.0.0
-# and optional demo seed into local Knowledge Core.
+# + archimate-ui-cards 1.0.0 and optional demo seed into local Knowledge Core.
 # Bundles live in sibling repo knowledge-models (not knowledge-core).
 set -euo pipefail
 
@@ -37,6 +37,15 @@ echo "Importing archimate-ui-traversal 1.0.0 …"
 curl -sf "${auth[@]}" --data-binary @"$ui_trav" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
+ui_cards="$MODELS_ROOT/archimate-ui-cards/releases/archimate-ui-cards-1.0.0.bundle.json"
+if [[ -f "$ui_cards" ]]; then
+  echo "Importing archimate-ui-cards 1.0.0 …"
+  curl -sf "${auth[@]}" --data-binary @"$ui_cards" "$KC_URL/v1/releases/import" | head -c 200
+  echo ""
+else
+  echo "WARN: missing $ui_cards — Karty mode will have no presentation profiles"
+fi
+
 # Ensure instanceOfProperty if empty
 cfg=$(curl -sf -H "Authorization: Bearer $TOKEN" "$KC_URL/v1/admin/schema-config")
 if echo "$cfg" | grep -q '"instanceOfProperty":\s*""\|"instanceOfProperty":\s*null\|instanceOfProperty": ""'; then
@@ -66,7 +75,8 @@ curl -sf "${auth[@]}" -H "Idempotency-Key: itmap-org-demo" \
     "descriptions":{"en":"IT Map demo organization package","cs":"Demo package organizace IT Map"},
     "dependencies":[
       {"dependsOnCode":"archimate-lite","versionRange":"^3.1.0"},
-      {"dependsOnCode":"archimate-ui-traversal","versionRange":"^1.0.0"}
+      {"dependsOnCode":"archimate-ui-traversal","versionRange":"^1.0.0"},
+      {"dependsOnCode":"archimate-ui-cards","versionRange":"^1.0.0"}
     ]
   }' "$KC_URL/v1/packages" >/dev/null 2>&1 || true
 

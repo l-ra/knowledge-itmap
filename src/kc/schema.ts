@@ -9,6 +9,7 @@ import {
 
 const AML = ARCHIMATE_LITE_PKG;
 const UI_TRAV = UI_TRAVERSAL_PKG;
+const UI_CARDS = "archimate-ui-cards";
 const KC_BASE = "kc-base";
 
 export interface SchemaSnapshot {
@@ -71,18 +72,27 @@ export class SchemaResolver {
       );
     }
 
-    const [amlClasses, amlProperties, uiClasses, uiProperties] = await Promise.all([
-      this.loadAllKind(AML, "class"),
-      this.loadAllKind(AML, "property") as Promise<PropertyEntity[]>,
-      this.loadAllKind(UI_TRAV, "class").catch((e) => {
-        console.warn("archimate-ui-traversal classes load skipped:", e);
-        return [] as Entity[];
-      }),
-      this.loadAllKind(UI_TRAV, "property").catch((e) => {
-        console.warn("archimate-ui-traversal properties load skipped:", e);
-        return [] as PropertyEntity[];
-      }) as Promise<PropertyEntity[]>,
-    ]);
+    const [amlClasses, amlProperties, uiClasses, uiProperties, cardClasses, cardProperties] =
+      await Promise.all([
+        this.loadAllKind(AML, "class"),
+        this.loadAllKind(AML, "property") as Promise<PropertyEntity[]>,
+        this.loadAllKind(UI_TRAV, "class").catch((e) => {
+          console.warn("archimate-ui-traversal classes load skipped:", e);
+          return [] as Entity[];
+        }),
+        this.loadAllKind(UI_TRAV, "property").catch((e) => {
+          console.warn("archimate-ui-traversal properties load skipped:", e);
+          return [] as PropertyEntity[];
+        }) as Promise<PropertyEntity[]>,
+        this.loadAllKind(UI_CARDS, "class").catch((e) => {
+          console.warn("archimate-ui-cards classes load skipped:", e);
+          return [] as Entity[];
+        }),
+        this.loadAllKind(UI_CARDS, "property").catch((e) => {
+          console.warn("archimate-ui-cards properties load skipped:", e);
+          return [] as PropertyEntity[];
+        }) as Promise<PropertyEntity[]>,
+      ]);
 
     let allowedRows: AllowedRel[] = [];
     try {
@@ -96,11 +106,13 @@ export class SchemaResolver {
 
     const classesByLocal = new Map<string, Entity>();
     const classIriToLocal = new Map<string, string>();
-    for (const c of [...amlClasses, ...uiClasses]) {
+    for (const c of [...amlClasses, ...uiClasses, ...cardClasses]) {
       if (c.iriLocal) {
         classesByLocal.set(c.iriLocal, c);
         indexWithUiTraversalAliases(classIriToLocal, c.iriLocal, c.id);
         if (c.iri) indexWithUiTraversalAliases(classIriToLocal, c.iriLocal, c.iri);
+        classIriToLocal.set(c.id, c.iriLocal);
+        if (c.iri) classIriToLocal.set(c.iri, c.iriLocal);
       }
     }
 
@@ -112,6 +124,16 @@ export class SchemaResolver {
         indexWithUiTraversalAliases(propertyIriToLocal, p.iriLocal, p.id);
         if (p.iri) indexWithUiTraversalAliases(propertyIriToLocal, p.iriLocal, p.iri);
       }
+    }
+    // Cards properties: index IRI→local for statement reading; do not overwrite
+    // shared locals (profileCode, sortOrder, …) used by ui-traversal.
+    for (const p of cardProperties) {
+      if (!p.iriLocal) continue;
+      if (!propertiesByLocal.has(p.iriLocal)) {
+        propertiesByLocal.set(p.iriLocal, p);
+      }
+      propertyIriToLocal.set(p.id, p.iriLocal);
+      if (p.iri) propertyIriToLocal.set(p.iri, p.iriLocal);
     }
 
     const relSource = propertiesByLocal.get("relSource")?.id;
