@@ -1,17 +1,18 @@
 # IT Map — Organization Architecture Editor
 
-Doménově specializovaný editor nad **Knowledge Core**, metamodelem **archimate-lite ≥ 3.1.0**
+Doménově specializovaný editor nad **Knowledge Core**, metamodelem **archimate-lite ≥ 3.2.1**
 a navigačním package **archimate-ui-traversal ≥ 1.0.0**.
 Uživatel prochází a edituje model organizace ve sloupcovém browseru (Organization → … → Network / Location).
 
-Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)
+Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)  
+Open Exchange import/export: [`docs/open-exchange.md`](docs/open-exchange.md)
 
 ## Požadavky
 
 - Node.js 20+
 - Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
 - Sibling checkout [`knowledge-models`](../knowledge-models) s bundley
-- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` 3.1.0 + `archimate-ui-traversal` 1.0.0 + `archimate-ui-cards` 1.0.0
+- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` **3.2.1** + `archimate-ui-traversal` 1.0.0 + `archimate-ui-cards` 1.0.0
 
 ## Lokální spuštění s Knowledge Core (DEV)
 
@@ -46,7 +47,7 @@ npm run setup:seed
 `setup:seed` importuje:
 
 1. `kc-base-1.1.0.bundle.json`
-2. `archimate-lite-3.1.0.bundle.json`
+2. `archimate-lite-3.2.1.bundle.json`
 3. `archimate-ui-traversal-1.0.0.bundle.json`
 4. `archimate-ui-cards-1.0.0.bundle.json`
 5. volitelně demo loader `archimate-lite-demo`

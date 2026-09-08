@@ -93,6 +93,8 @@ export class KcError extends Error {
     public code: string,
     message: string,
     public body?: unknown,
+    public method?: string,
+    public path?: string,
   ) {
     super(message);
     this.name = "KcError";
@@ -177,7 +179,8 @@ export class KcClient {
       const id = this.effectiveWriteCs();
       if (id) headers["X-Knowledge-Changeset"] = id;
     } else if (opts?.cs === "read") {
-      const id = this.effectiveReadCs();
+      // Mid-write: also see the active auto/manual overlay on reads.
+      const id = this.effectiveWriteCs() || this.effectiveReadCs();
       if (id) headers["X-Knowledge-Changesets"] = id;
     }
 
@@ -200,13 +203,21 @@ export class KcClient {
     }
 
     if (!res.ok) {
-      const err = json as { error?: { code?: string; message?: string } } | null;
-      throw new KcError(
-        res.status,
-        err?.error?.code || "error",
-        err?.error?.message || `HTTP ${res.status}`,
-        json,
-      );
+      const err = json as {
+        error?: { code?: string; message?: string; details?: unknown };
+      } | null;
+      const msg =
+        err?.error?.message ||
+        (typeof (json as { message?: string })?.message === "string"
+          ? (json as { message: string }).message
+          : null) ||
+        (typeof (json as { raw?: string })?.raw === "string"
+          ? String((json as { raw: string }).raw).slice(0, 200)
+          : null) ||
+        `HTTP ${res.status}`;
+      const code = err?.error?.code || (res.status === 404 ? "not_found" : "error");
+      console.error(`[KcClient] ${method} ${path} → ${res.status}`, json ?? text);
+      throw new KcError(res.status, code, msg, json ?? text, method, path);
     }
     return json as T;
   }
@@ -291,7 +302,9 @@ export class KcClient {
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== "") q.set(k, String(v));
     }
-    return this.request("GET", `/v1/entities?${q}`, undefined, { cs: "read" });
+    return this.request<unknown>("GET", `/v1/entities?${q}`, undefined, { cs: "read" }).then((json) =>
+      asListResponse<Entity>(json),
+    );
   }
 
   getEntity(id: string): Promise<Entity> {
@@ -386,6 +399,54 @@ export class KcClient {
     });
   }
 
+  setEntityIriAliases(
+    id: string,
+    aliases: Array<{ iri: string; kind: string }>,
+  ): Promise<WriteResponse<Entity>> {
+    return this.request("PUT", `/v1/entities/${encodeURIComponent(id)}/iri-aliases`, { aliases }, {
+      idempotencyKey: `alias-${id}-${Date.now()}`,
+      cs: "write",
+    });
+  }
+
+  deprecateEntity(id: string, body: { expectedRevision?: number } = {}): Promise<WriteResponse<Entity>> {
+    return this.request("POST", `/v1/entities/${encodeURIComponent(id)}/deprecate`, body, {
+      idempotencyKey: `ent-depr-${id}-${Date.now()}`,
+      cs: "write",
+    });
+  }
+
+  deleteEntity(id: string, body: { expectedRevision?: number } = {}): Promise<WriteResponse<Entity>> {
+    return this.request("POST", `/v1/entities/${encodeURIComponent(id)}/delete`, body, {
+      idempotencyKey: `ent-del-${id}-${Date.now()}`,
+      cs: "write",
+    });
+  }
+
+  async listAllEntities(params: {
+    package?: string;
+    kind?: string;
+    iriLocal?: string;
+    iri?: string;
+    instanceOf?: string;
+    includeSubclasses?: boolean;
+    q?: string;
+    limit?: number;
+  }): Promise<Entity[]> {
+    const items: Entity[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.listEntities({
+        ...params,
+        limit: params.limit ?? 200,
+        cursor,
+      });
+      items.push(...(page.items || []));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return items;
+  }
+
   listProperties(packageCode: string): Promise<ListResponse<PropertyEntity>> {
     return this.request(
       "GET",
@@ -434,7 +495,18 @@ export class KcClient {
       comment: opts?.comment || undefined,
       operationType: opts?.operationType || undefined,
     });
-    return res.data || res.changeSet;
+    const cs = res.data || res.changeSet;
+    if (!cs?.id) {
+      throw new KcError(
+        500,
+        "invalid_response",
+        `openChangeSet nevrátil id. Odpověď: ${JSON.stringify(res).slice(0, 300)}`,
+        res,
+        "POST",
+        "/v1/changesets/open",
+      );
+    }
+    return cs;
   }
 
   async commitChangeSet(id: string): Promise<ChangeSet> {

@@ -3,6 +3,14 @@ import { getKc } from "@/kc/client";
 import { packageLabel } from "@/kc/schema";
 import type { PackageInfo, PackageRelease } from "@/kc/types";
 import { ModelService } from "@/domain/modelService";
+import { formatAppError, logAppError } from "@/kc/errors";
+import {
+  applyOpenExchangeOrphanActions,
+  exportOpenExchange,
+  importOpenExchange,
+  type OrphanAction,
+  type OrphanCandidate,
+} from "@/domain/openExchange";
 import { useApp } from "@/state/AppContext";
 
 export function PackagesPage() {
@@ -18,12 +26,16 @@ export function PackagesPage() {
   const [detail, setDetail] = useState<PackageInfo | null>(null);
   const [releases, setReleases] = useState<PackageRelease[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [newCode, setNewCode] = useState("org-demo");
   const [newLabel, setNewLabel] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [iriPrefix, setIriPrefix] = useState("https://example.org/");
   const [relVersion, setRelVersion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [orphans, setOrphans] = useState<OrphanCandidate[]>([]);
+  const [orphanActions, setOrphanActions] = useState<Record<string, OrphanAction>>({});
 
   const previewIriBase = (() => {
     const base = iriPrefix.replace(/\/+$/, "");
@@ -88,8 +100,92 @@ export function PackagesPage() {
       await getKc().importRelease(json);
       await reloadSchema();
       await refresh();
+      setInfo(`Importován release bundle: ${file.name}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importOpenExchangeFile(file: File) {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    setOrphans([]);
+    setProgress("Parsuji XML…");
+    try {
+      const xml = await file.text();
+      const result = await importOpenExchange({
+        xml,
+        packageCode: orgPackage,
+        onProgress: (msg, cur, total) => setProgress(`${cur}/${total}: ${msg}`),
+      });
+      await reloadSchema();
+      setInfo(
+        `Open Exchange import: vytvořeno ${result.created}, aktualizováno ${result.updated}, varování ${result.warnings.length}.`,
+      );
+      if (result.orphans.length) {
+        setOrphans(result.orphans);
+        const defaults: Record<string, OrphanAction> = {};
+        for (const o of result.orphans) defaults[o.entityId] = "keep";
+        setOrphanActions(defaults);
+      }
+    } catch (e) {
+      logAppError(e, "Open Exchange import");
+      setError(formatAppError(e, "Import Open Exchange"));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
+  async function exportOpenExchangeFile() {
+    setBusy(true);
+    setError(null);
+    setProgress("Exportuji…");
+    try {
+      const result = await exportOpenExchange({
+        packageCode: orgPackage,
+        onProgress: (msg, cur, total) => setProgress(`${cur}/${total}: ${msg}`),
+      });
+      const blob = new Blob([result.xml], { type: "application/xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${orgPackage}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setInfo(
+        `Export: ${result.elementCount} prvků, ${result.relationshipCount} vztahů, ${result.viewCount} views.`,
+      );
+    } catch (e) {
+      logAppError(e, "Open Exchange export");
+      setError(formatAppError(e, "Export Open Exchange"));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
+  async function applyOrphans() {
+    setBusy(true);
+    setError(null);
+    try {
+      const actions = orphans.map((o) => ({
+        orphan: o,
+        action: orphanActions[o.entityId] || "keep",
+      }));
+      const res = await applyOpenExchangeOrphanActions(actions);
+      setInfo(`Orphan review: ${res.ok} změn` + (res.errors.length ? `, ${res.errors.length} chyb` : ""));
+      if (res.errors.length) {
+        setError(res.errors.map((e) => formatAppError(e.message, e.entityId)).join("; "));
+      }
+      setOrphans([]);
+      setOrphanActions({});
+    } catch (e) {
+      logAppError(e, "Open Exchange orphan review");
+      setError(formatAppError(e, "Revize orphanů"));
     } finally {
       setBusy(false);
     }
@@ -112,7 +208,21 @@ export function PackagesPage() {
   return (
     <div className="page">
       <h2>Packages &amp; Releases</h2>
-      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+      {error && (
+        <p
+          style={{
+            color: "var(--danger)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontFamily: "ui-monospace, monospace",
+            fontSize: "0.9rem",
+          }}
+        >
+          {error}
+        </p>
+      )}
+      {info && <p style={{ color: "var(--muted, #666)" }}>{info}</p>}
+      {progress && <p className="empty">{progress}</p>}
 
       <section style={{ marginBottom: "1.5rem" }}>
         <h3>Aktivní org package</h3>
@@ -179,8 +289,8 @@ export function PackagesPage() {
           Vytvořit / použít org package
         </button>
         <p className="empty" style={{ textAlign: "left" }}>
-          Závislost: <code>archimate-lite ^3.0.0</code> +{" "}
-          <code>archimate-ui-traversal ^1.0.0</code>
+          Závislost: <code>archimate-lite ^3.0.0</code> (pro Open Exchange doporučeno{" "}
+          <code>3.2.1+</code>) + <code>archimate-ui-traversal ^1.0.0</code>
         </p>
       </section>
 
@@ -188,7 +298,7 @@ export function PackagesPage() {
         <h3>Import release bundle</h3>
         <p className="empty" style={{ textAlign: "left" }}>
           Nejdřív <code>kc-base-1.1.0.bundle.json</code>, pak{" "}
-          <code>archimate-lite-3.0.0.bundle.json</code>, pak{" "}
+          <code>archimate-lite-3.2.1.bundle.json</code>, pak{" "}
           <code>archimate-ui-traversal-1.0.0.bundle.json</code>
         </p>
         <input
@@ -200,6 +310,98 @@ export function PackagesPage() {
           }}
         />
       </section>
+
+      <section style={{ marginBottom: "1.5rem" }}>
+        <h3>ArchiMate Open Exchange</h3>
+        <p className="empty" style={{ textAlign: "left" }}>
+          Import/export ArchiMate Model Exchange XML do aktivního org package{" "}
+          <code>{orgPackage}</code>. Identifikátory z XML se ukládají jako <code>iriLocal</code>.
+          Neznámé typy/atributy se zachovají (opaque) a při exportu vrátí. Po reimportu můžete
+          zrevidovat entity chybějící v XML.
+        </p>
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+          <label className="toolbar-btn">
+            Import XML
+            <input
+              type="file"
+              accept=".xml,application/xml,text/xml"
+              style={{ display: "none" }}
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void importOpenExchangeFile(f);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="toolbar-btn primary"
+            disabled={busy}
+            onClick={() => void exportOpenExchangeFile()}
+          >
+            Export XML ({orgPackageLabel})
+          </button>
+        </div>
+      </section>
+
+      {orphans.length > 0 && (
+        <section style={{ marginBottom: "1.5rem" }}>
+          <h3>Revize chybějících v XML ({orphans.length})</h3>
+          <p className="empty" style={{ textAlign: "left" }}>
+            Tyto exchange-managed entity nejsou v právě importovaném souboru. Výchozí akce je
+            Ponechat — nic se nesmaže automaticky.
+          </p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Kind</th>
+                <th>iriLocal</th>
+                <th>Akce</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orphans.map((o) => (
+                <tr key={o.entityId}>
+                  <td>{o.label}</td>
+                  <td>{o.kind}</td>
+                  <td className="mono">{o.iriLocal}</td>
+                  <td>
+                    <select
+                      value={orphanActions[o.entityId] || "keep"}
+                      onChange={(e) =>
+                        setOrphanActions((prev) => ({
+                          ...prev,
+                          [o.entityId]: e.target.value as OrphanAction,
+                        }))
+                      }
+                    >
+                      <option value="keep">Ponechat</option>
+                      <option value="deprecate">Deprecovat</option>
+                      <option value="delete">Smazat</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" className="toolbar-btn primary" disabled={busy} onClick={() => void applyOrphans()}>
+            Potvrdit revizi
+          </button>{" "}
+          <button
+            type="button"
+            className="toolbar-btn"
+            disabled={busy}
+            onClick={() => {
+              setOrphans([]);
+              setOrphanActions({});
+            }}
+          >
+            Zrušit
+          </button>
+        </section>
+      )}
 
       <section>
         <h3>Packages</h3>

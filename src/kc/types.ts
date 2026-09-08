@@ -30,6 +30,11 @@ export type StatementValue =
 
 export type LangMap = Record<string, string>;
 
+export interface EntityIRIAlias {
+  iri: string;
+  kind: "imported" | "sameAs" | "canonical_export" | string;
+}
+
 export interface Entity {
   id: string;
   canonicalId?: string;
@@ -41,6 +46,7 @@ export interface Entity {
   packageCode?: string;
   iriLocal?: string;
   iri?: string;
+  iriAliases?: EntityIRIAlias[];
   effectiveClasses?: string[];
   createdAt?: string;
   updatedAt?: string;

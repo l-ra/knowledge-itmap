@@ -14,7 +14,7 @@ echo "MODELS_ROOT=$MODELS_ROOT"
 echo "KC_URL=$KC_URL"
 
 kc_base="$MODELS_ROOT/kc-base/releases/kc-base-1.1.0.bundle.json"
-aml="$MODELS_ROOT/archimate-lite/releases/archimate-lite-3.1.0.bundle.json"
+aml="$MODELS_ROOT/archimate-lite/releases/archimate-lite-3.2.1.bundle.json"
 ui_trav="$MODELS_ROOT/archimate-ui-traversal/releases/archimate-ui-traversal-1.0.0.bundle.json"
 
 for f in "$kc_base" "$aml" "$ui_trav"; do
