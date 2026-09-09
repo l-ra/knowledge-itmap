@@ -20,8 +20,10 @@ Při exportu se do XML znovu zapíše `iriLocal` jako `identifier`. Entity vytvo
 
 1. Zvolte aktivní org package.
 2. **Import XML** — vyberte `.xml` (např. export z Archi).
-3. Průběh běží v jednom ChangeSetu (`openExchangeImport`).
+3. Průběh běží v jednom open ChangeSetu (`openExchangeImport`) a zapisuje **davkově** (`POST /v1/changesets`, chunky ~250 ops) — vyžaduje KC [phase-21](../../knowledge-core/docs/specs/phase-21-unified-batch-writes.md).
 4. Po dokončení se zobrazí počty created/updated a případná **revize orphanů**.
+
+Detail implementace: [zadani-open-exchange-batch-import.md](zadani-open-exchange-batch-import.md).
 
 ### Mapování
 
@@ -76,3 +78,4 @@ Podrobnosti v package `archimate-lite` (entity `exchange-spec`) a v dokumentaci 
 - Lite matice se při importu nevynucuje (jen warningy)
 - UI needituje opaque bag (Extended inspector / statementy)
 - Junctions nejsou nativní Lite třídy — jen foreign passthrough
+- Import používá **batch chunky** do open CS (KC phase-21); bez novějšího KC selže open batch

@@ -2,7 +2,18 @@ import type { KcClient } from "@/kc/client";
 import type { SchemaResolver } from "@/kc/schema";
 import type { Entity, StatementValue } from "@/kc/types";
 import { formatAppError, logAppError } from "@/kc/errors";
-import { exchangeAliasIri, iriLocalFromIdentifier, isExchangeManagedAlias } from "./identity";
+import {
+  applyBatchResults,
+  createOpBuffer,
+  entityRef,
+  pushEnsureEntity,
+  pushExchangeManaged,
+  pushInstanceOf,
+  pushRefStatement,
+  pushStringStatement,
+  shouldFlush,
+} from "./batchOps";
+import { isExchangeManagedAlias } from "./identity";
 import {
   opaqueToExchangeProperties,
   parseBendpoints,
@@ -50,85 +61,6 @@ function primaryLabel(labels?: Record<string, string>): string | undefined {
   return labels.cs || labels.en || Object.values(labels).find(Boolean);
 }
 
-async function upsertString(
-  kc: KcClient,
-  schema: SchemaResolver,
-  packageCode: string,
-  subject: string,
-  propLocal: string,
-  value: string | undefined,
-) {
-  if (value == null || value === "") return;
-  const prop = schema.tryPropertyIri(propLocal);
-  if (!prop) return;
-  await kc.createStatement({
-    packageCode,
-    subject,
-    property: prop,
-    value: { type: "String", string: value },
-    upsert: true,
-  });
-}
-
-async function upsertBool(
-  kc: KcClient,
-  schema: SchemaResolver,
-  packageCode: string,
-  subject: string,
-  propLocal: string,
-  value: boolean,
-) {
-  const prop = schema.tryPropertyIri(propLocal);
-  if (!prop) return;
-  await kc.createStatement({
-    packageCode,
-    subject,
-    property: prop,
-    value: { type: "Boolean", bool: value },
-    upsert: true,
-  });
-}
-
-async function upsertInt(
-  kc: KcClient,
-  schema: SchemaResolver,
-  packageCode: string,
-  subject: string,
-  propLocal: string,
-  value: number | undefined,
-) {
-  if (value == null || !Number.isFinite(value)) return;
-  const prop = schema.tryPropertyIri(propLocal);
-  if (!prop) return;
-  await kc.createStatement({
-    packageCode,
-    subject,
-    property: prop,
-    value: { type: "Integer", int64: Math.trunc(value) },
-    upsert: true,
-  });
-}
-
-async function upsertRef(
-  kc: KcClient,
-  schema: SchemaResolver,
-  packageCode: string,
-  subject: string,
-  propLocal: string,
-  entityId: string | undefined,
-) {
-  if (!entityId) return;
-  const prop = schema.tryPropertyIri(propLocal);
-  if (!prop) return;
-  await kc.createStatement({
-    packageCode,
-    subject,
-    property: prop,
-    value: { type: "EntityReference", entityId },
-    upsert: true,
-  });
-}
-
 function stmtString(stmts: { property: string; value: StatementValue }[], propIri: string | undefined): string | undefined {
   if (!propIri) return undefined;
   const s = stmts.find((x) => x.property === propIri);
@@ -148,61 +80,6 @@ function stmtRef(stmts: { property: string; value: StatementValue }[], propIri: 
   const s = stmts.find((x) => x.property === propIri);
   if (!s || s.value.type !== "EntityReference") return undefined;
   return s.value.entityId;
-}
-
-async function ensureEntity(
-  kc: KcClient,
-  packageCode: string,
-  identifier: string,
-  labels: Record<string, string>,
-  descriptions: Record<string, string> | undefined,
-  existingByLocal: Map<string, Entity>,
-): Promise<{ entity: Entity; created: boolean }> {
-  const iriLocal = iriLocalFromIdentifier(identifier);
-  const existing = existingByLocal.get(iriLocal);
-  if (existing) {
-    try {
-      await kc.patchEntity(existing.id, {
-        labels,
-        descriptions,
-        expectedRevision: existing.revisionNo,
-      });
-    } catch {
-      /* keep existing labels if revision conflict */
-    }
-    const refreshed = await kc.getEntity(existing.id);
-    existingByLocal.set(iriLocal, refreshed);
-    return { entity: refreshed, created: false };
-  }
-  const created = await kc.createEntity({
-    packageCode,
-    labels,
-    descriptions,
-    iriLocal,
-  });
-  const entity = created.data ?? (created as unknown as Entity);
-  if (!entity?.id) {
-    throw new Error(
-      `createEntity nevrátilo entitu (iriLocal=${iriLocal}). Odpověď: ${JSON.stringify(created).slice(0, 300)}`,
-    );
-  }
-  existingByLocal.set(iriLocal, entity);
-  return { entity, created: true };
-}
-
-async function markExchangeManaged(
-  kc: KcClient,
-  schema: SchemaResolver,
-  packageCode: string,
-  entity: Entity,
-  identifier: string,
-) {
-  const ent = await kc.getEntity(entity.id);
-  await kc.setEntityIriAliases(entity.id, [
-    ...(ent.iriAliases || []).filter((a) => a.kind !== "imported"),
-    { iri: exchangeAliasIri(identifier), kind: "imported" },
-  ]);
-  await upsertBool(kc, schema, packageCode, entity.id, "exchangeManaged", true);
 }
 
 /** Known Lite string properties that may appear as Exchange property keys. */
@@ -264,265 +141,250 @@ export async function importExchangeModel(opts: {
     await kc.runLogicalChangeSet(
       { operationType: "openExchangeImport", comment: `Open Exchange import → ${packageCode}` },
       async () => {
-      // Elements
-      for (const el of model.elements) {
-        const resolved = resolveElementType(schema, el.xsiType, warnings, el.identifier);
-        const labels = langMap(el.name) || { en: el.identifier };
-        const descriptions = langMap(el.documentation);
-        const { entity, created: wasCreated } = await ensureEntity(
-          kc,
-          packageCode,
-          el.identifier,
-          labels,
-          descriptions,
-          existingByLocal,
-        );
-        if (wasCreated) created += 1;
-        else updated += 1;
-        idToEntityId.set(el.identifier, entity.id);
+        const buf = createOpBuffer(existingByLocal);
+        const managedProp = schema.tryPropertyIri("exchangeManaged") || undefined;
 
-        await kc.createStatement({
-          packageCode,
-          subject: entity.id,
-          property: snap.instanceOfProperty,
-          value: { type: "EntityReference", entityId: resolved.classIri },
-          upsert: true,
-        });
-
-        if (resolved.foreign || resolved.exchangeXsiType) {
-          await upsertString(
-            kc,
-            schema,
-            packageCode,
-            entity.id,
-            "exchangeXsiType",
-            resolved.exchangeXsiType || el.xsiType,
-          );
-        }
-
-        const unknownProps: ExchangeElement["properties"] = [];
-        for (const p of el.properties) {
-          const local = mapKnownProperty(schema, p.key);
-          if (local) {
-            await upsertString(kc, schema, packageCode, entity.id, local, p.value);
-          } else {
-            unknownProps.push(p);
-            warnings.push({
-              level: "info",
-              code: "opaque_property",
-              message: `Opaque property "${p.key}" on ${el.identifier}`,
-              identifier: el.identifier,
-            });
-          }
-        }
-        const opaque = propertiesToOpaque(unknownProps, el.extraAttrs);
-        if (opaque.length) {
-          await upsertString(
-            kc,
-            schema,
-            packageCode,
-            entity.id,
-            "exchangeOpaqueProperties",
-            serializeOpaqueProperties(opaque),
-          );
-        }
-        // Safe default for elements
-        if (schema.tryPropertyIri("modelingDepth")) {
-          await upsertString(kc, schema, packageCode, entity.id, "modelingDepth", "catalog");
-        }
-
-        await markExchangeManaged(kc, schema, packageCode, entity, el.identifier);
-        tick(`element ${el.identifier}`);
-      }
-
-      // Relationships
-      for (const rel of model.relationships) {
-        const resolved = resolveRelationshipType(schema, rel.xsiType, warnings, rel.identifier);
-        const labels = langMap(rel.name) || { en: rel.identifier };
-        const descriptions = langMap(rel.documentation);
-        const { entity, created: wasCreated } = await ensureEntity(
-          kc,
-          packageCode,
-          rel.identifier,
-          labels,
-          descriptions,
-          existingByLocal,
-        );
-        if (wasCreated) created += 1;
-        else updated += 1;
-        idToEntityId.set(rel.identifier, entity.id);
-
-        await kc.createStatement({
-          packageCode,
-          subject: entity.id,
-          property: snap.instanceOfProperty,
-          value: { type: "EntityReference", entityId: resolved.classIri },
-          upsert: true,
-        });
-
-        const srcId = idToEntityId.get(rel.source);
-        const tgtId = idToEntityId.get(rel.target);
-        if (!srcId || !tgtId) {
-          warnings.push({
-            level: "warning",
-            code: "missing_endpoint",
-            message: `Relationship ${rel.identifier} missing source/target entity`,
-            identifier: rel.identifier,
+        const flush = async (label: string) => {
+          if (!buf.ops.length) return;
+          const n = buf.ops.length;
+          opts.onProgress?.(`batch ${label} (${n} ops)`, done, Math.max(total, 1));
+          const res = await kc.applyChangeSetOperations({
+            operationType: "openExchangeImport",
+            operations: buf.ops.splice(0, buf.ops.length),
           });
-        } else {
-          await upsertRef(kc, schema, packageCode, entity.id, "relSource", srcId);
-          await upsertRef(kc, schema, packageCode, entity.id, "relTarget", tgtId);
-        }
-
-        if (resolved.foreign) {
-          await upsertString(kc, schema, packageCode, entity.id, "exchangeXsiType", rel.xsiType);
-        }
-
-        const unknownProps: typeof rel.properties = [];
-        for (const p of rel.properties) {
-          const local = mapKnownProperty(schema, p.key);
-          if (local) await upsertString(kc, schema, packageCode, entity.id, local, p.value);
-          else unknownProps.push(p);
-        }
-        const opaque = propertiesToOpaque(unknownProps, rel.extraAttrs);
-        if (opaque.length) {
-          await upsertString(
-            kc,
-            schema,
-            packageCode,
-            entity.id,
-            "exchangeOpaqueProperties",
-            serializeOpaqueProperties(opaque),
-          );
-        }
-
-        await markExchangeManaged(kc, schema, packageCode, entity, rel.identifier);
-        tick(`relationship ${rel.identifier}`);
-      }
-
-      // Views
-      for (const view of model.views) {
-        const labels = langMap(view.name) || { en: view.identifier };
-        const { entity: viewEnt, created: wasCreated } = await ensureEntity(
-          kc,
-          packageCode,
-          view.identifier,
-          labels,
-          undefined,
-          existingByLocal,
-        );
-        if (wasCreated) created += 1;
-        else updated += 1;
-        idToEntityId.set(view.identifier, viewEnt.id);
-
-        await kc.createStatement({
-          packageCode,
-          subject: viewEnt.id,
-          property: snap.instanceOfProperty,
-          value: { type: "EntityReference", entityId: schema.classIri("DiagramView") },
-          upsert: true,
-        });
-        await markExchangeManaged(kc, schema, packageCode, viewEnt, view.identifier);
-        tick(`view ${view.identifier}`);
-
-        const importNode = async (node: ExchangeViewNode, parentId?: string) => {
-          const { entity: nodeEnt, created: nodeCreated } = await ensureEntity(
-            kc,
-            packageCode,
-            node.identifier,
-            { en: node.identifier },
-            undefined,
-            existingByLocal,
-          );
-          if (nodeCreated) created += 1;
-          else updated += 1;
-          idToEntityId.set(node.identifier, nodeEnt.id);
-
-          await kc.createStatement({
-            packageCode,
-            subject: nodeEnt.id,
-            property: snap.instanceOfProperty,
-            value: { type: "EntityReference", entityId: schema.classIri("ViewNode") },
-            upsert: true,
-          });
-          await upsertRef(kc, schema, packageCode, nodeEnt.id, "inView", viewEnt.id);
-          await upsertString(kc, schema, packageCode, nodeEnt.id, "nodeKind", "element");
-          if (node.elementRef && idToEntityId.get(node.elementRef)) {
-            await upsertRef(kc, schema, packageCode, nodeEnt.id, "elementRef", idToEntityId.get(node.elementRef));
-          }
-          await upsertInt(kc, schema, packageCode, nodeEnt.id, "boundsX", node.x);
-          await upsertInt(kc, schema, packageCode, nodeEnt.id, "boundsY", node.y);
-          await upsertInt(kc, schema, packageCode, nodeEnt.id, "boundsW", node.w);
-          await upsertInt(kc, schema, packageCode, nodeEnt.id, "boundsH", node.h);
-          const styleJson = serializeStyle(node.style);
-          if (styleJson) await upsertString(kc, schema, packageCode, nodeEnt.id, "style", styleJson);
-          if (parentId) await upsertRef(kc, schema, packageCode, nodeEnt.id, "parentNode", parentId);
-          if (node.opaqueFragment) {
-            await upsertString(kc, schema, packageCode, nodeEnt.id, "exchangeOpaqueFragment", node.opaqueFragment);
-          }
-          await markExchangeManaged(kc, schema, packageCode, nodeEnt, node.identifier);
-          tick(`node ${node.identifier}`);
-          for (const ch of node.children) await importNode(ch, nodeEnt.id);
+          applyBatchResults(buf, res.data?.results || []);
         };
 
-        for (const n of view.nodes) await importNode(n);
+        const enqueue = async (approxOps: number, build: () => void) => {
+          if (shouldFlush(buf, approxOps)) await flush("chunk");
+          build();
+        };
 
-        for (const conn of view.connections) {
-          const { entity: connEnt, created: connCreated } = await ensureEntity(
-            kc,
-            packageCode,
-            conn.identifier,
-            { en: conn.identifier },
-            undefined,
-            existingByLocal,
-          );
-          if (connCreated) created += 1;
-          else updated += 1;
-          idToEntityId.set(conn.identifier, connEnt.id);
+        const subjectOf = (identifier: string) => entityRef(identifier, buf.idMap.get(identifier));
 
-          await kc.createStatement({
-            packageCode,
-            subject: connEnt.id,
-            property: snap.instanceOfProperty,
-            value: { type: "EntityReference", entityId: schema.classIri("ViewConnection") },
-            upsert: true,
+        // Elements
+        for (const el of model.elements) {
+          await enqueue(12, () => {
+            const resolved = resolveElementType(schema, el.xsiType, warnings, el.identifier);
+            const labels = langMap(el.name) || { en: el.identifier };
+            const descriptions = langMap(el.documentation);
+            const { created: wasCreated } = pushEnsureEntity(
+              buf,
+              packageCode,
+              el.identifier,
+              labels,
+              descriptions,
+            );
+            if (wasCreated) created += 1;
+            else updated += 1;
+            const subj = subjectOf(el.identifier);
+            pushInstanceOf(buf, packageCode, subj, snap.instanceOfProperty, resolved.classIri);
+            if (resolved.foreign || resolved.exchangeXsiType) {
+              const p = schema.tryPropertyIri("exchangeXsiType");
+              if (p) pushStringStatement(buf, packageCode, subj, p, resolved.exchangeXsiType || el.xsiType);
+            }
+            const unknownProps: ExchangeElement["properties"] = [];
+            for (const p of el.properties) {
+              const local = mapKnownProperty(schema, p.key);
+              if (local) {
+                const iri = schema.tryPropertyIri(local);
+                if (iri) pushStringStatement(buf, packageCode, subj, iri, p.value);
+              } else {
+                unknownProps.push(p);
+                warnings.push({
+                  level: "info",
+                  code: "opaque_property",
+                  message: `Opaque property "${p.key}" on ${el.identifier}`,
+                  identifier: el.identifier,
+                });
+              }
+            }
+            const opaque = propertiesToOpaque(unknownProps, el.extraAttrs);
+            if (opaque.length) {
+              const p = schema.tryPropertyIri("exchangeOpaqueProperties");
+              if (p) pushStringStatement(buf, packageCode, subj, p, serializeOpaqueProperties(opaque));
+            }
+            const depth = schema.tryPropertyIri("modelingDepth");
+            if (depth) pushStringStatement(buf, packageCode, subj, depth, "catalog");
+            pushExchangeManaged(buf, packageCode, subj, el.identifier, managedProp);
           });
-          await upsertRef(kc, schema, packageCode, connEnt.id, "inView", viewEnt.id);
-          if (conn.relationshipRef && idToEntityId.get(conn.relationshipRef)) {
-            await upsertRef(
-              kc,
-              schema,
-              packageCode,
-              connEnt.id,
-              "relationshipRef",
-              idToEntityId.get(conn.relationshipRef),
-            );
-          }
-          await upsertRef(kc, schema, packageCode, connEnt.id, "sourceNode", idToEntityId.get(conn.source));
-          await upsertRef(kc, schema, packageCode, connEnt.id, "targetNode", idToEntityId.get(conn.target));
-          if (conn.bendpoints.length) {
-            await upsertString(
-              kc,
-              schema,
-              packageCode,
-              connEnt.id,
-              "bendpoints",
-              serializeBendpoints(conn.bendpoints),
-            );
-          }
-          const styleJson = serializeStyle(conn.style);
-          if (styleJson) await upsertString(kc, schema, packageCode, connEnt.id, "style", styleJson);
-          await markExchangeManaged(kc, schema, packageCode, connEnt, conn.identifier);
-          tick(`connection ${conn.identifier}`);
+          tick(`element ${el.identifier}`);
         }
-      }
+        await flush("elements");
 
-      // Organizations hint is optional; export regenerates folders from package contents.
+        // Relationships
+        for (const rel of model.relationships) {
+          await enqueue(14, () => {
+            const resolved = resolveRelationshipType(schema, rel.xsiType, warnings, rel.identifier);
+            const labels = langMap(rel.name) || { en: rel.identifier };
+            const descriptions = langMap(rel.documentation);
+            const { created: wasCreated } = pushEnsureEntity(
+              buf,
+              packageCode,
+              rel.identifier,
+              labels,
+              descriptions,
+            );
+            if (wasCreated) created += 1;
+            else updated += 1;
+            const subj = subjectOf(rel.identifier);
+            pushInstanceOf(buf, packageCode, subj, snap.instanceOfProperty, resolved.classIri);
+            const srcId = buf.idMap.get(rel.source);
+            const tgtId = buf.idMap.get(rel.target);
+            if (!srcId || !tgtId) {
+              warnings.push({
+                level: "warning",
+                code: "missing_endpoint",
+                message: `Relationship ${rel.identifier} missing source/target entity`,
+                identifier: rel.identifier,
+              });
+            } else {
+              const ps = schema.tryPropertyIri("relSource");
+              const pt = schema.tryPropertyIri("relTarget");
+              if (ps) pushRefStatement(buf, packageCode, subj, ps, srcId);
+              if (pt) pushRefStatement(buf, packageCode, subj, pt, tgtId);
+            }
+            if (resolved.foreign) {
+              const p = schema.tryPropertyIri("exchangeXsiType");
+              if (p) pushStringStatement(buf, packageCode, subj, p, rel.xsiType);
+            }
+            const unknownProps: typeof rel.properties = [];
+            for (const p of rel.properties) {
+              const local = mapKnownProperty(schema, p.key);
+              if (local) {
+                const iri = schema.tryPropertyIri(local);
+                if (iri) pushStringStatement(buf, packageCode, subj, iri, p.value);
+              } else unknownProps.push(p);
+            }
+            const opaque = propertiesToOpaque(unknownProps, rel.extraAttrs);
+            if (opaque.length) {
+              const p = schema.tryPropertyIri("exchangeOpaqueProperties");
+              if (p) pushStringStatement(buf, packageCode, subj, p, serializeOpaqueProperties(opaque));
+            }
+            pushExchangeManaged(buf, packageCode, subj, rel.identifier, managedProp);
+          });
+          tick(`relationship ${rel.identifier}`);
+        }
+        await flush("relationships");
+
+        // Views + nodes + connections
+        for (const view of model.views) {
+          await enqueue(8, () => {
+            const labels = langMap(view.name) || { en: view.identifier };
+            const { created: wasCreated } = pushEnsureEntity(buf, packageCode, view.identifier, labels);
+            if (wasCreated) created += 1;
+            else updated += 1;
+            const subj = subjectOf(view.identifier);
+            pushInstanceOf(buf, packageCode, subj, snap.instanceOfProperty, schema.classIri("DiagramView"));
+            pushExchangeManaged(buf, packageCode, subj, view.identifier, managedProp);
+          });
+          tick(`view ${view.identifier}`);
+
+          const importNode = async (node: ExchangeViewNode, parentIdentifier?: string) => {
+            await enqueue(16, () => {
+              const { created: nodeCreated } = pushEnsureEntity(buf, packageCode, node.identifier, {
+                en: node.identifier,
+              });
+              if (nodeCreated) created += 1;
+              else updated += 1;
+              const subj = subjectOf(node.identifier);
+              const viewSubj = subjectOf(view.identifier);
+              pushInstanceOf(buf, packageCode, subj, snap.instanceOfProperty, schema.classIri("ViewNode"));
+              const inView = schema.tryPropertyIri("inView");
+              if (inView) pushRefStatement(buf, packageCode, subj, inView, viewSubj);
+              const nodeKind = schema.tryPropertyIri("nodeKind");
+              if (nodeKind) pushStringStatement(buf, packageCode, subj, nodeKind, "element");
+              if (node.elementRef && buf.idMap.get(node.elementRef)) {
+                const er = schema.tryPropertyIri("elementRef");
+                if (er) pushRefStatement(buf, packageCode, subj, er, buf.idMap.get(node.elementRef));
+              }
+              for (const [local, val] of [
+                ["boundsX", node.x],
+                ["boundsY", node.y],
+                ["boundsW", node.w],
+                ["boundsH", node.h],
+              ] as const) {
+                const p = schema.tryPropertyIri(local);
+                if (p && val != null) {
+                  buf.ops.push({
+                    op: "createStatement",
+                    packageCode,
+                    subject: subj,
+                    property: p,
+                    value: { type: "Integer", int64: val },
+                    upsert: true,
+                  });
+                }
+              }
+              const styleJson = serializeStyle(node.style);
+              const styleP = schema.tryPropertyIri("style");
+              if (styleJson && styleP) pushStringStatement(buf, packageCode, subj, styleP, styleJson);
+              if (parentIdentifier) {
+                const pp = schema.tryPropertyIri("parentNode");
+                if (pp) pushRefStatement(buf, packageCode, subj, pp, subjectOf(parentIdentifier));
+              }
+              if (node.opaqueFragment) {
+                const op = schema.tryPropertyIri("exchangeOpaqueFragment");
+                if (op) pushStringStatement(buf, packageCode, subj, op, node.opaqueFragment);
+              }
+              pushExchangeManaged(buf, packageCode, subj, node.identifier, managedProp);
+            });
+            tick(`node ${node.identifier}`);
+            for (const ch of node.children) await importNode(ch, node.identifier);
+          };
+
+          for (const n of view.nodes) await importNode(n);
+          await flush(`view-nodes ${view.identifier}`);
+
+          for (const conn of view.connections) {
+            await enqueue(14, () => {
+              const { created: connCreated } = pushEnsureEntity(buf, packageCode, conn.identifier, {
+                en: conn.identifier,
+              });
+              if (connCreated) created += 1;
+              else updated += 1;
+              const subj = subjectOf(conn.identifier);
+              pushInstanceOf(
+                buf,
+                packageCode,
+                subj,
+                snap.instanceOfProperty,
+                schema.classIri("ViewConnection"),
+              );
+              const inView = schema.tryPropertyIri("inView");
+              if (inView) pushRefStatement(buf, packageCode, subj, inView, subjectOf(view.identifier));
+              if (conn.relationshipRef && buf.idMap.get(conn.relationshipRef)) {
+                const rp = schema.tryPropertyIri("relationshipRef");
+                if (rp) pushRefStatement(buf, packageCode, subj, rp, buf.idMap.get(conn.relationshipRef));
+              }
+              const sn = schema.tryPropertyIri("sourceNode");
+              const tn = schema.tryPropertyIri("targetNode");
+              if (sn) pushRefStatement(buf, packageCode, subj, sn, buf.idMap.get(conn.source));
+              if (tn) pushRefStatement(buf, packageCode, subj, tn, buf.idMap.get(conn.target));
+              if (conn.bendpoints.length) {
+                const bp = schema.tryPropertyIri("bendpoints");
+                if (bp) pushStringStatement(buf, packageCode, subj, bp, serializeBendpoints(conn.bendpoints));
+              }
+              const styleJson = serializeStyle(conn.style);
+              const styleP = schema.tryPropertyIri("style");
+              if (styleJson && styleP) pushStringStatement(buf, packageCode, subj, styleP, styleJson);
+              pushExchangeManaged(buf, packageCode, subj, conn.identifier, managedProp);
+            });
+            tick(`connection ${conn.identifier}`);
+          }
+          await flush(`view-conns ${view.identifier}`);
+        }
+
+        await flush("final");
+        for (const [k, v] of buf.idMap) idToEntityId.set(k, v);
       },
     );
   });
 
   const after = await kc.listAllEntities({ package: packageCode, kind: "entity" });
+  for (const e of after) {
+    if (e.iriLocal) idToEntityId.set(e.iriLocal, e.id);
+  }
   const xmlIdentifiers = collectXmlIdentifiers(model);
   xmlIdentifiers.delete(model.identifier);
 

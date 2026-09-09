@@ -1,6 +1,8 @@
 export type { AuthConfig } from "./types";
 import type {
   AuthConfig,
+  BatchApplyData,
+  ChangeOperation,
   ChangeSet,
   Entity,
   GraphNeighborhood,
@@ -526,6 +528,18 @@ export class KcClient {
       {},
     );
     return res.data || res.changeSet;
+  }
+
+  /** Append graph ops to the active open ChangeSet (or commit immediately if none). */
+  applyChangeSetOperations(body: {
+    operationType?: string;
+    comment?: string;
+    operations: ChangeOperation[];
+  }): Promise<WriteResponse<BatchApplyData>> {
+    return this.request("POST", "/v1/changesets", body, {
+      idempotencyKey: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      cs: "write",
+    });
   }
 
   /**

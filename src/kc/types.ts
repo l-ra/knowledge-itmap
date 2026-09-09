@@ -121,6 +121,54 @@ export interface WriteResponse<T> {
   };
 }
 
+/** Batch write op (POST /v1/changesets). */
+export type ChangeOperation =
+  | {
+      op: "createEntity";
+      clientKey?: string;
+      packageCode: string;
+      labels: LangMap;
+      descriptions?: LangMap;
+      iriLocal?: string;
+    }
+  | {
+      op: "updateEntity";
+      entity: string;
+      labels?: LangMap;
+      descriptions?: LangMap;
+      iriLocal?: string;
+      expectedRevision?: number;
+    }
+  | {
+      op: "createStatement";
+      clientKey?: string;
+      packageCode: string;
+      subject: string;
+      property: string;
+      value: StatementValue;
+      upsert?: boolean;
+      qualifiers?: Array<{ property: string; value: StatementValue }>;
+    }
+  | {
+      op: "setEntityIRIAliases";
+      entity: string;
+      aliases: EntityIRIAlias[];
+    };
+
+export interface BatchOpResult {
+  op: string;
+  entity?: string;
+  statement?: string;
+  property?: string;
+  clientKey?: string;
+  revisionNo?: number;
+  aliasCount?: number;
+}
+
+export interface BatchApplyData {
+  results: BatchOpResult[];
+}
+
 export interface ListResponse<T> {
   items: T[];
   nextCursor?: string;

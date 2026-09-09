@@ -34,6 +34,9 @@ function hintForKcError(err: KcError): string | null {
     if (err.path?.includes("/entities/") && err.method === "GET") {
       return "Entita v KC neexistuje (nebo není vidět bez ChangeSet headeru).";
     }
+    if (err.path?.includes("/changesets/") && err.path?.includes("/commit")) {
+      return "Commit open ChangeSetu selhal (často chybějící subject/property při apply, ne zmizelý CS). Detaily výše.";
+    }
     if (err.path?.includes("/changesets/")) {
       return "ChangeSet neexistuje nebo už není open.";
     }
