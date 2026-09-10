@@ -157,3 +157,31 @@ export function isRelationshipClassLocal(local: string): boolean {
 export function isViewClassLocal(local: string): boolean {
   return VIEW_LOCALS.has(local);
 }
+
+/** Abstract / layer roots — never prefer these over a concrete subclass. */
+const ABSTRACT_ARCHIMATE_CLASS_LOCALS = new Set([
+  "ArchiMateConcept",
+  "ArchiMateElement",
+  "ArchiMateRelationship",
+  "ArchiMateViewConcept",
+  "ArchiMateLiteMeta",
+]);
+
+export function isAbstractArchimateClassLocal(local: string): boolean {
+  return ABSTRACT_ARCHIMATE_CLASS_LOCALS.has(local);
+}
+
+/**
+ * Prefer a concrete ArchiMate class over abstract ancestors.
+ * `effectiveClasses` is an unordered ancestor closure, so the first mapped
+ * local is often ArchiMateConcept / ArchiMateElement.
+ */
+export function mostSpecificClassLocal(locals: Iterable<string>): string | undefined {
+  let fallback: string | undefined;
+  for (const local of locals) {
+    if (!local) continue;
+    if (!isAbstractArchimateClassLocal(local)) return local;
+    if (!fallback) fallback = local;
+  }
+  return fallback;
+}

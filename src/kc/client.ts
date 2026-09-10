@@ -14,6 +14,8 @@ import type {
   Statement,
   StatementValue,
   WriteResponse,
+  EntityFacetsResponse,
+  BatchReadResponse,
 } from "./types";
 
 const STORAGE_KEY = "itmap.kc.auth";
@@ -135,8 +137,23 @@ type RequestOpts = {
 export class KcClient {
   private manualChangeSetId: string | null = null;
   private autoChangeSetId: string | null = null;
+  /** Dev telemetry: count GET requests between beginReadCount/endReadCount. */
+  private readCounting = false;
+  private readCount = 0;
 
   constructor(private auth: AuthConfig = loadAuth()) {}
+
+  /** Start counting GET requests (CardsHub A6 telemetry). */
+  beginReadCount(): void {
+    this.readCounting = true;
+    this.readCount = 0;
+  }
+
+  /** Stop counting and return GET count since beginReadCount. */
+  endReadCount(): number {
+    this.readCounting = false;
+    return this.readCount;
+  }
 
   setAuth(auth: AuthConfig): void {
     this.auth = auth;
@@ -184,6 +201,10 @@ export class KcClient {
       // Mid-write: also see the active auto/manual overlay on reads.
       const id = this.effectiveWriteCs() || this.effectiveReadCs();
       if (id) headers["X-Knowledge-Changesets"] = id;
+    }
+
+    if (this.readCounting && method === "GET") {
+      this.readCount += 1;
     }
 
     const res = await fetch(`${baseUrl()}${path}`, {
@@ -299,6 +320,10 @@ export class KcClient {
     q?: string;
     cursor?: string;
     limit?: number;
+    /** CSV: effectiveClasses, statements (KC phase-22). */
+    include?: string;
+    /** CSV property ids / iriLocals; required with include=statements. */
+    properties?: string;
   }): Promise<ListResponse<Entity>> {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
@@ -307,6 +332,30 @@ export class KcClient {
     return this.request<unknown>("GET", `/v1/entities?${q}`, undefined, { cs: "read" }).then((json) =>
       asListResponse<Entity>(json),
     );
+  }
+
+  /** Facet counts by direct instanceOf (KC phase-22 B2). */
+  listEntityFacets(params: {
+    package?: string;
+    groupBy?: string;
+  } = {}): Promise<EntityFacetsResponse> {
+    const q = new URLSearchParams();
+    if (params.package) q.set("package", params.package);
+    q.set("groupBy", params.groupBy || "instanceOf");
+    return this.request<EntityFacetsResponse>("GET", `/v1/entities/facets?${q}`, undefined, {
+      cs: "read",
+    });
+  }
+
+  /** Batch entity read (KC phase-22 B3). Max 200 ids. */
+  batchReadEntities(body: {
+    ids: string[];
+    include?: string[];
+    properties?: string[];
+  }): Promise<BatchReadResponse> {
+    return this.request<BatchReadResponse>("POST", "/v1/entities/batch-read", body, {
+      cs: "read",
+    });
   }
 
   getEntity(id: string): Promise<Entity> {

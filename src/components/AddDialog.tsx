@@ -3,13 +3,19 @@ import { entityLabel } from "@/kc/schema";
 import type { AddActionDef } from "@/domain/templates";
 import type { ColumnItem } from "@/domain/traversal";
 import { getSchema } from "@/kc/schema";
+import type { LangMap } from "@/kc/types";
+import {
+  DescriptionEditor,
+  descriptionsDraftFrom,
+  normalizeLangMap,
+} from "./DescriptionEditor";
 
 export type AddDialogSubmit =
   | {
       mode: "create";
       action: AddActionDef;
       name: string;
-      description: string;
+      descriptions: LangMap;
       extras: Record<string, string>;
     }
   | {
@@ -40,7 +46,9 @@ export function AddDialog({
 }: Props) {
   const [actionCode, setActionCode] = useState(actions[0]?.code || "");
   const [query, setQuery] = useState("");
-  const [description, setDescription] = useState("");
+  const [descriptions, setDescriptions] = useState<Record<string, string>>(() =>
+    descriptionsDraftFrom(),
+  );
   const [flowLabel, setFlowLabel] = useState("");
   const [associationKind, setAssociationKind] = useState("reportsTo");
   const [suggestions, setSuggestions] = useState<ColumnItem[]>([]);
@@ -145,7 +153,7 @@ export function AddDialog({
         mode: "create",
         action,
         name,
-        description: description.trim(),
+        descriptions: normalizeLangMap(descriptions),
         extras,
       });
       onClose();
@@ -263,10 +271,12 @@ export function AddDialog({
           )}
 
           {showCreateFields && (
-            <div className="field">
-              <label>Popis</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
+            <DescriptionEditor
+              value={descriptions}
+              onChange={setDescriptions}
+              disabled={busy}
+              idPrefix="add-desc"
+            />
           )}
           {showRelFields && needsFlowLabel && (
             <div className="field">

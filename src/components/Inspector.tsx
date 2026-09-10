@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { entityLabel, getSchema } from "@/kc/schema";
-import type { Entity, Statement } from "@/kc/types";
+import type { Entity, LangMap, Statement } from "@/kc/types";
 import { ModelService } from "@/domain/modelService";
 import {
   groupStatementsByProperty,
@@ -10,6 +10,12 @@ import {
 } from "@/domain/propertyEdit";
 import { domainLabelFor, TraversalEngine } from "@/domain/traversal";
 import { useApp } from "@/state/AppContext";
+import {
+  DescriptionEditor,
+  descriptionsDraftFrom,
+  langMapsEqual,
+  normalizeLangMap,
+} from "./DescriptionEditor";
 import { PropertyStatementEditor } from "./PropertyStatementEditor";
 
 interface Props {
@@ -31,11 +37,11 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
   const [tab, setTab] = useState<"basic" | "extended">("basic");
   const [stmts, setStmts] = useState<Statement[]>([]);
   const [name, setName] = useState("");
-  const [desc, setDesc] = useState("");
+  const [desc, setDesc] = useState<Record<string, string>>(() => descriptionsDraftFrom());
   const [actorKind, setActorKind] = useState("");
   const [organizationScope, setOrganizationScope] = useState("");
   const [originalName, setOriginalName] = useState("");
-  const [originalDesc, setOriginalDesc] = useState("");
+  const [originalDesc, setOriginalDesc] = useState<LangMap>({});
   const [originalActorKind, setOriginalActorKind] = useState("");
   const [originalOrganizationScope, setOriginalOrganizationScope] = useState("");
   const [actorKindStmt, setActorKindStmt] = useState<Statement | undefined>();
@@ -75,11 +81,11 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
       return;
     }
     const initialName = entity.labels?.cs || entity.labels?.en || "";
-    const initialDesc = entity.descriptions?.cs || entity.descriptions?.en || "";
+    const initialDesc = descriptionsDraftFrom(entity.descriptions);
     setName(initialName);
     setDesc(initialDesc);
     setOriginalName(initialName);
-    setOriginalDesc(initialDesc);
+    setOriginalDesc(normalizeLangMap(entity.descriptions));
     void reloadStatements(entity.id);
   }, [entity, engine, classLocal]);
 
@@ -113,7 +119,7 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
 
   const hasBasicChanges = useMemo(() => {
     const nameChanged = !stringValuesEqual(name, originalName);
-    const descChanged = !stringValuesEqual(desc, originalDesc);
+    const descChanged = !langMapsEqual(desc, originalDesc);
     const actorKindChanged =
       classLocal === "BusinessActor" && !stringValuesEqual(actorKind, originalActorKind);
     const scopeChanged =
@@ -160,7 +166,8 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
     setBusy(true);
     try {
       const nameChanged = !stringValuesEqual(name, originalName);
-      const descChanged = !stringValuesEqual(desc, originalDesc);
+      const nextDesc = normalizeLangMap(desc);
+      const descChanged = !langMapsEqual(nextDesc, originalDesc);
       const actorKindPatch = buildStringPatch(actorKind, originalActorKind, actorKindStmt);
       const organizationScopePatch = buildStringPatch(
         organizationScope,
@@ -171,7 +178,7 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
       const cs = await model.saveEntityBasics({
         id: entity!.id,
         labels: nameChanged ? { en: name, cs: name } : undefined,
-        descriptions: descChanged ? (desc ? { en: desc, cs: desc } : {}) : undefined,
+        descriptions: descChanged ? nextDesc : undefined,
         revision: entity!.revisionNo,
         packageCode: orgPackage,
         actorKind: actorKindPatch,
@@ -180,7 +187,7 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
       if (cs) {
         pushChangeSet(cs);
         setOriginalName(name);
-        setOriginalDesc(desc);
+        setOriginalDesc(nextDesc);
         if (actorKindPatch) setOriginalActorKind(actorKind);
         if (organizationScopePatch) setOriginalOrganizationScope(organizationScope);
         await reloadStatements(entity!.id);
@@ -311,10 +318,12 @@ export function Inspector({ entity, classLocal, isPeek, onClosePeek, onUpdated }
               <label>Název</label>
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <div className="field">
-              <label>Popis</label>
-              <textarea value={desc} onChange={(e) => setDesc(e.target.value)} />
-            </div>
+            <DescriptionEditor
+              value={desc}
+              onChange={setDesc}
+              disabled={busy}
+              idPrefix="inspector-desc"
+            />
             {classLocal === "BusinessActor" && (
               <>
                 <div className="field">

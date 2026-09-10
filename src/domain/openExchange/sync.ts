@@ -31,6 +31,7 @@ import {
   exportXsiType,
   isRelationshipClassLocal,
   isViewClassLocal,
+  mostSpecificClassLocal,
   resolveElementType,
   resolveRelationshipType,
 } from "./typeMap";
@@ -459,21 +460,22 @@ async function loadEntityBundle(
     }
   }
   const stmts = (await kc.getStatements(entity.id)).items;
-  let classLocal: string | undefined;
+  const fromEffective: string[] = [];
   for (const iri of ent.effectiveClasses || []) {
     const local = schema.classLocal(iri);
-    if (local && local !== "ArchiMateConcept" && local !== "ArchiMateElement" && local !== "ArchiMateRelationship") {
-      classLocal = local;
-      break;
-    }
-    if (local && !classLocal) classLocal = local;
+    if (local) fromEffective.push(local);
   }
+  let classLocal = mostSpecificClassLocal(fromEffective);
   // instanceOf fallback
   if (!classLocal) {
-    const io = stmts.find((s) => s.property === schema.snapshot.instanceOfProperty);
-    if (io?.value.type === "EntityReference") {
-      classLocal = schema.classLocal(io.value.entityId);
+    const fromInstanceOf: string[] = [];
+    for (const s of stmts) {
+      if (s.property !== schema.snapshot.instanceOfProperty) continue;
+      if (s.value.type !== "EntityReference") continue;
+      const local = schema.classLocal(s.value.entityId);
+      if (local) fromInstanceOf.push(local);
     }
+    classLocal = mostSpecificClassLocal(fromInstanceOf);
   }
   return { entity: ent, classLocal, stmts };
 }

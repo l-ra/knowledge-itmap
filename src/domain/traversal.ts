@@ -1,6 +1,7 @@
 import { getKc, type KcClient } from "../kc/client";
 import { entityLabel, getSchema, type SchemaResolver } from "../kc/schema";
 import type { Entity, Statement } from "../kc/types";
+import { mostSpecificClassLocal } from "./openExchange/typeMap";
 import type { AddActionDef } from "./templates";
 import {
   type StageDef,
@@ -506,20 +507,23 @@ export class TraversalEngine {
   async resolveClassLocal(entity: Entity): Promise<string | undefined> {
     const snap = this.schema.snapshot;
     if (entity.effectiveClasses?.length) {
+      const locals: string[] = [];
       for (const c of entity.effectiveClasses) {
         const local = snap.classIriToLocal.get(c);
-        if (local && local !== "ArchiMateElement" && local !== "ArchiMateConcept") {
-          return local;
-        }
+        if (local) locals.push(local);
       }
+      const specific = mostSpecificClassLocal(locals);
+      if (specific) return specific;
     }
     const stmts = await this.kc.getStatements(entity.id, snap.instanceOfProperty);
+    const fromInstanceOf: string[] = [];
     for (const s of stmts.items) {
       if (s.value.type === "EntityReference") {
-        return snap.classIriToLocal.get(s.value.entityId);
+        const local = snap.classIriToLocal.get(s.value.entityId);
+        if (local) fromInstanceOf.push(local);
       }
     }
-    return undefined;
+    return mostSpecificClassLocal(fromInstanceOf);
   }
 
   async readStringProp(entityId: string, propLocal: string): Promise<string | undefined> {

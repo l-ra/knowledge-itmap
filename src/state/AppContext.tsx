@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getKc,
   loadAuth,
@@ -19,6 +20,7 @@ import {
   type StoredActiveChangeSet,
 } from "@/kc/client";
 import { getSchema, packageLabel } from "@/kc/schema";
+import { schemaFingerprint } from "@/kc/schemaFingerprint";
 import type { ChangeSet, PackageInfo } from "@/kc/types";
 import {
   getNavigationResolver,
@@ -28,8 +30,17 @@ import {
 } from "@/domain/navigationProfile";
 import type { ResolvedNavigationProfile } from "@/domain/navigationProfileTypes";
 import { resetNavigationLoader } from "@/domain/navigationProfileLoader";
+import { getCardsProfileLoader, resetCardsProfileLoader } from "@/domain/cards";
+import { authQueryKey, queryKeys } from "./queryKeys";
 
 export type ActiveChangeSet = StoredActiveChangeSet;
+
+interface BootstrapData {
+  packages: PackageInfo[];
+  fingerprint: string;
+  actorSubject: string | null;
+  actorRoles: string[];
+}
 
 interface AppState {
   ready: boolean;
@@ -79,21 +90,81 @@ function toStored(cs: ChangeSet): ActiveChangeSet {
   };
 }
 
+async function fetchBootstrap(opts?: { forceSchema?: boolean }): Promise<BootstrapData> {
+  const kc = getKc();
+  kc.setAuth(loadAuth());
+  await kc.healthz();
+
+  let actorSubject: string | null;
+  let actorRoles: string[];
+  try {
+    const me = await kc.me();
+    actorSubject = me.subject || loadAuth().subject || null;
+    actorRoles =
+      me.roles ||
+      (loadAuth().roles || "")
+        .split(",")
+        .map((r) => r.trim())
+        .filter(Boolean);
+  } catch {
+    const a = loadAuth();
+    actorSubject = a.subject || null;
+    actorRoles = (a.roles || "")
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean);
+  }
+
+  const [pkgRes, config] = await Promise.all([kc.listPackages(), kc.getSchemaConfig()]);
+  const packages = pkgRes.items;
+  const fingerprint = schemaFingerprint(packages, config.updatedAt);
+
+  if (opts?.forceSchema) {
+    await getSchema().clearPersisted();
+    await getSchema().load({ force: true, fingerprint, config });
+  } else {
+    await getSchema().load({ fingerprint, config });
+  }
+  getCardsProfileLoader().clearCache();
+  resetCardsProfileLoader();
+
+  return { packages, fingerprint, actorSubject, actorRoles };
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
   const [orgPackage, setOrgPackageState] = useState(loadOrgPackage);
-  const [packages, setPackages] = useState<PackageInfo[]>([]);
   const [auth, setAuthState] = useState(loadAuth);
   const [lastChangeSet, setLastChangeSet] = useState<ChangeSet | null>(null);
   const [activeChangeSet, setActiveChangeSet] = useState<ActiveChangeSet | null>(null);
-  const [actorSubject, setActorSubject] = useState<string | null>(null);
-  const [actorRoles, setActorRoles] = useState<string[]>([]);
   const [graphEpoch, setGraphEpoch] = useState(0);
   const [csReady, setCsReady] = useState(false);
   const [navigationProfile, setNavigationProfile] = useState<ResolvedNavigationProfile | null>(null);
   const [navigationLoading, setNavigationLoading] = useState(false);
   const [templateCode, setTemplateCodeState] = useState(loadStoredTemplateCode);
+
+  const authKey = authQueryKey(auth);
+  const bootstrapKey = queryKeys.bootstrap(authKey);
+
+  const bootstrap = useQuery({
+    queryKey: bootstrapKey,
+    queryFn: () => fetchBootstrap(),
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 60,
+    retry: 1,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+
+  const ready = bootstrap.isSuccess;
+  const error = bootstrap.error
+    ? bootstrap.error instanceof Error
+      ? bootstrap.error.message
+      : String(bootstrap.error)
+    : null;
+  const packages = bootstrap.data?.packages ?? [];
+  const actorSubject = bootstrap.data?.actorSubject ?? null;
+  const actorRoles = bootstrap.data?.actorRoles ?? [];
 
   const bumpGraphEpoch = useCallback(() => setGraphEpoch((n) => n + 1), []);
 
@@ -127,44 +198,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const reloadPackages = useCallback(async () => {
     try {
       const res = await getKc().listPackages();
-      setPackages(res.items);
+      // Package list only — do not change schema fingerprint (use reloadSchema after release import).
+      qc.setQueryData<BootstrapData>(bootstrapKey, (old) =>
+        old ? { ...old, packages: res.items } : old,
+      );
+      qc.setQueryData(queryKeys.packages, res.items);
     } catch {
-      setPackages([]);
+      /* keep prior packages */
     }
-  }, []);
+  }, [qc, bootstrapKey]);
 
   const reloadSchema = useCallback(async () => {
-    setError(null);
-    const kc = getKc();
-    kc.setAuth(loadAuth());
-    try {
-      await kc.healthz();
-      try {
-        const me = await kc.me();
-        setActorSubject(me.subject || loadAuth().subject || null);
-        setActorRoles(me.roles || (loadAuth().roles || "").split(",").map((r) => r.trim()).filter(Boolean));
-      } catch {
-        const a = loadAuth();
-        setActorSubject(a.subject || null);
-        setActorRoles((a.roles || "").split(",").map((r) => r.trim()).filter(Boolean));
-      }
-      await getSchema().load(true);
-      setReady(true);
-      await reloadPackages();
-    } catch (e) {
-      setReady(false);
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [reloadPackages]);
+    // Force network schema load; keep prior in-memory snap until replaced (no UI race).
+    await qc.fetchQuery({
+      queryKey: bootstrapKey,
+      queryFn: () => fetchBootstrap({ forceSchema: true }),
+    });
+  }, [qc, bootstrapKey]);
 
   useEffect(() => {
     if (!ready) return;
     void reloadNavigationProfile();
   }, [ready, orgPackage, graphEpoch, reloadNavigationProfile]);
-
-  useEffect(() => {
-    void reloadSchema();
-  }, [reloadSchema]);
 
   // Restore open ChangeSet from session after schema is ready
   useEffect(() => {
@@ -203,9 +258,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAuthState(a);
       applyActive(null);
       setCsReady(false);
-      void reloadSchema();
+      void getSchema().invalidate();
+      // New authKey → fresh bootstrap query; no manual reloadSchema needed.
     },
-    [reloadSchema, applyActive],
+    [applyActive],
   );
 
   const enableManualChangeSet = useCallback(
@@ -222,20 +278,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [activeChangeSet?.id, applyActive, bumpGraphEpoch],
   );
 
+  const softReloadSchema = useCallback(async () => {
+    try {
+      const fp = bootstrap.data?.fingerprint;
+      if (fp) await getSchema().load({ fingerprint: fp });
+      else await getSchema().load(false);
+    } catch {
+      /* ignore */
+    }
+  }, [bootstrap.data?.fingerprint]);
+
   const commitManualChangeSet = useCallback(async () => {
     const id = activeChangeSet?.id;
     if (!id) return null;
     const committed = await getKc().commitChangeSet(id);
     applyActive(null);
     setLastChangeSet({ ...committed, status: "committed" });
-    try {
-      await getSchema().load(true);
-    } catch {
-      /* ignore */
-    }
+    await softReloadSchema();
     bumpGraphEpoch();
     return committed;
-  }, [activeChangeSet?.id, applyActive, bumpGraphEpoch]);
+  }, [activeChangeSet?.id, applyActive, bumpGraphEpoch, softReloadSchema]);
 
   const cancelManualChangeSet = useCallback(async () => {
     const id = activeChangeSet?.id;
@@ -246,13 +308,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await getKc().cancelChangeSet(id);
     applyActive(null);
     setLastChangeSet({ id, status: "cancelled" });
-    try {
-      await getSchema().load(true);
-    } catch {
-      /* ignore */
-    }
+    await softReloadSchema();
     bumpGraphEpoch();
-  }, [activeChangeSet?.id, applyActive, bumpGraphEpoch]);
+  }, [activeChangeSet?.id, applyActive, bumpGraphEpoch, softReloadSchema]);
 
   const resumeChangeSet = useCallback(
     async (id: string) => {

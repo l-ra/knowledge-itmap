@@ -3,6 +3,7 @@ export type {
   CardFieldView,
   CardNeighbor,
   CardSlotView,
+  CardSystemInfo,
   CardViewModel,
   PresentationProfileDef,
   RelationSlotDef,
@@ -11,4 +12,15 @@ export type {
 } from "./types";
 export { CardsProfileLoader, getCardsProfileLoader, resetCardsProfileLoader } from "./profileLoader";
 export { resolvePresentationProfile } from "./profileResolver";
+export {
+  classLocalFromEffective,
+  classLocalFromStatements,
+  classNeedsMatchProps,
+  interestingKeysForClass,
+  matchKeysForClass,
+  propMapFromStatements,
+  resolveClassLocalFromEmbeds,
+  statementToString,
+} from "./hubResolve";
 export { CardsService } from "./cardsService";
+export type { CardsHubPage, CardsHubRow } from "./cardsService";

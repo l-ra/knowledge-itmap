@@ -48,6 +48,8 @@ export interface Entity {
   iri?: string;
   iriAliases?: EntityIRIAlias[];
   effectiveClasses?: string[];
+  /** Present when list/batch-read used include=statements. */
+  statements?: Statement[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -172,6 +174,26 @@ export interface BatchApplyData {
 export interface ListResponse<T> {
   items: T[];
   nextCursor?: string;
+}
+
+export interface EntityFacet {
+  classId: string;
+  count: number;
+}
+
+export interface EntityFacetsResponse {
+  facets: EntityFacet[];
+}
+
+export interface BatchReadResult {
+  id: string;
+  entity?: Entity;
+  statements?: Statement[];
+  error?: string;
+}
+
+export interface BatchReadResponse {
+  results: BatchReadResult[];
 }
 
 export interface PackageInfo {

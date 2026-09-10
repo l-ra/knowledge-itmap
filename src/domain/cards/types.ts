@@ -1,3 +1,5 @@
+import type { LangMap } from "@/kc/types";
+
 export const UI_CARDS_PKG = "archimate-ui-cards";
 
 export type SlotImportance = "recommended" | "optional";
@@ -56,11 +58,29 @@ export interface CardFieldView {
   value: string;
 }
 
+/** KC identity / graph metadata shown on the card Systém tab. */
+export interface CardSystemInfo {
+  id: string;
+  canonicalId?: string;
+  iri?: string;
+  iriLocal?: string;
+  iriAliases: Array<{ iri: string; kind: string }>;
+  packageCode?: string;
+  status: string;
+  kind: string;
+  revisionNo: number;
+  createdAt?: string;
+  updatedAt?: string;
+  effectiveClassLocals: string[];
+}
+
 export interface CardViewModel {
   entityId: string;
   entityLabel: string;
   classLocal: string;
   description?: string;
+  /** Full multilingual descriptions (for editing). */
+  descriptions?: LangMap;
   profile: PresentationProfileDef | null;
   /** True when no presentation profile matched */
   raw: boolean;
@@ -68,4 +88,5 @@ export interface CardViewModel {
   slots: CardSlotView[];
   /** Unmatched AML edges (for expert mode) */
   expertNeighbors: CardNeighbor[];
+  system: CardSystemInfo;
 }

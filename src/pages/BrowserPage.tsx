@@ -584,7 +584,7 @@ export function BrowserPage() {
       const result = await model.createElement({
         packageCode: orgPackage,
         name: payload.name,
-        description: payload.description,
+        descriptions: payload.descriptions,
         action: payload.action,
         selectedId,
         extraProps: extras,

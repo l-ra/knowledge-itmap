@@ -7,7 +7,9 @@ import type { AddActionDef } from "./templates";
 export interface CreateElementInput {
   packageCode: string;
   name: string;
+  /** @deprecated Prefer `descriptions` */
   description?: string;
+  descriptions?: Record<string, string>;
   iriLocal?: string;
   action: AddActionDef;
   /** Selected entity in previous column (context for relationship) */
@@ -59,12 +61,23 @@ export class ModelService {
         const classIri = this.schema.classIri(input.action.createsClass);
         const iriLocal = input.iriLocal || `${slugify(input.name)}-${Date.now().toString(36)}`;
 
+        const descriptions =
+          input.descriptions &&
+          Object.fromEntries(
+            Object.entries(input.descriptions)
+              .map(([lang, text]) => [lang.trim().toLowerCase(), text.trim()] as const)
+              .filter(([lang, text]) => lang && text),
+          );
+        const legacyDescription = input.description?.trim();
         const created = await this.kc.createEntity({
           packageCode: input.packageCode,
           labels: { en: input.name, cs: input.name },
-          descriptions: input.description
-            ? { en: input.description, cs: input.description }
-            : undefined,
+          descriptions:
+            descriptions && Object.keys(descriptions).length
+              ? descriptions
+              : legacyDescription
+                ? { en: legacyDescription, cs: legacyDescription }
+                : undefined,
           iriLocal,
         });
         const entity = created.data;
@@ -332,25 +345,28 @@ export class ModelService {
   }
 
   /**
-   * Replace string property value: deprecate existing statement(s) when needed, create new.
+   * Replace property value: deprecate existing statement when needed, create new.
    * Returns null when newValue equals existing (no-op).
    */
-  async replaceStringProperty(opts: {
+  async replacePropertyValue(opts: {
     packageCode: string;
     subject: string;
     propertyLocal: string;
-    newValue: string;
+    newValue: StatementValue;
     existingStatement?: Statement;
   }): Promise<ChangeSet | null> {
     const existing = opts.existingStatement;
-    if (existing && stringValuesEqual(stringFromValue(existing.value), opts.newValue)) {
+    if (
+      existing &&
+      stringValuesEqual(stringFromValue(existing.value), stringFromValue(opts.newValue))
+    ) {
       return null;
     }
 
     const { changeSet } = await this.kc.runLogicalChangeSet(
       {
         operationType: "replaceProperty",
-        comment: `${opts.propertyLocal}=${opts.newValue}`,
+        comment: `${opts.propertyLocal}`,
       },
       async () => {
         if (existing) {
@@ -363,28 +379,63 @@ export class ModelService {
           packageCode: opts.packageCode,
           subject: opts.subject,
           property: propIri,
-          value: { type: "String", string: opts.newValue },
+          value: opts.newValue,
         });
       },
     );
     return changeSet;
   }
 
-  /** Add another value for a multi-valued property. */
-  async addStringPropertyValue(opts: {
+  /**
+   * Replace string property value: deprecate existing statement(s) when needed, create new.
+   * Returns null when newValue equals existing (no-op).
+   */
+  async replaceStringProperty(opts: {
     packageCode: string;
     subject: string;
     propertyLocal: string;
-    value: string;
+    newValue: string;
+    existingStatement?: Statement;
+  }): Promise<ChangeSet | null> {
+    return this.replacePropertyValue({
+      packageCode: opts.packageCode,
+      subject: opts.subject,
+      propertyLocal: opts.propertyLocal,
+      newValue: { type: "String", string: opts.newValue },
+      existingStatement: opts.existingStatement,
+    });
+  }
+
+  /** Add another value for a multi-valued (or empty) property. */
+  async addPropertyValue(opts: {
+    packageCode: string;
+    subject: string;
+    propertyLocal: string;
+    value: StatementValue;
   }): Promise<ChangeSet> {
     const propIri = this.schema.propertyIri(opts.propertyLocal);
     const res = await this.kc.createStatement({
       packageCode: opts.packageCode,
       subject: opts.subject,
       property: propIri,
-      value: { type: "String", string: opts.value },
+      value: opts.value,
     });
     return res.changeSet;
+  }
+
+  /** Add another string value for a multi-valued property. */
+  async addStringPropertyValue(opts: {
+    packageCode: string;
+    subject: string;
+    propertyLocal: string;
+    value: string;
+  }): Promise<ChangeSet> {
+    return this.addPropertyValue({
+      packageCode: opts.packageCode,
+      subject: opts.subject,
+      propertyLocal: opts.propertyLocal,
+      value: { type: "String", string: opts.value },
+    });
   }
 
   /** Labels (+ optional actorKind / organizationScope) as one logical ChangeSet. */
