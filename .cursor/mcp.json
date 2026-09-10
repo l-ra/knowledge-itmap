@@ -7,7 +7,8 @@
       "envFile": "/home/rasekl/src/knowledge-itmap/.env.mcp",
       "env": {
         "ITMAP_MCP_TRANSPORT": "stdio",
-        "ITMAP_MCP_ORG_PACKAGE": "org-ote"
+        "ITMAP_MCP_WRITE_PACKAGES": "org-ote,org-demo",
+        "ITMAP_MCP_DEFAULT_PACKAGE": "org-ote"
       }
     }
   }

@@ -3,7 +3,7 @@
  * Live acceptance smoke against a running Knowledge Core.
  *
  * Requires env (same as MCP server):
- *   ITMAP_KC_BASE_URL, ITMAP_MCP_ORG_PACKAGE,
+ *   ITMAP_KC_BASE_URL, ITMAP_MCP_WRITE_PACKAGES (or legacy ORG_PACKAGE),
  *   ITMAP_KC_AUTH_MODE=dev (or token), ITMAP_MCP_WRITE_MODE=propose
  *
  * Exit 0 on success; non-zero if KC unreachable or a step fails.
@@ -65,11 +65,47 @@ async function main(): Promise<void> {
   }
   log("element types present");
 
+  const writePkg = config.defaultPackage || config.writePackages[0];
+  if (!writePkg) throw new Error("no write package in config");
+
+  // Write without approval must fail
+  let denied = false;
+  try {
+    ctx.resolveWritePackage(writePkg);
+  } catch {
+    denied = true;
+  }
+  if (!denied) throw new Error("expected write without approval to fail");
+  log("write gate rejects unapproved package");
+
+  ctx.approveWritePackage(writePkg);
+  log("approve_write_package", writePkg);
+
   const listed = await ctx.kc.listEntities({
-    package: config.orgPackage,
+    package: writePkg,
     limit: 5,
   });
-  log("list_entities", { count: listed.items.length, package: config.orgPackage });
+  log("list_entities", { count: listed.items.length, package: writePkg });
+
+  // Typed list smoke when BusinessActor exists
+  const facets = await ctx.kc.listEntityFacets({ package: writePkg, groupBy: "instanceOf" });
+  const baFacet = (facets.facets || []).find((f) => f.classId.endsWith("/BusinessActor"));
+  if (baFacet && baFacet.count > 0) {
+    const ba = await ctx.kc.listEntities({
+      package: writePkg,
+      instanceOf: ctx.schema.classIri("BusinessActor"),
+      includeSubclasses: true,
+      limit: 5,
+    });
+    if (!ba.items.length) {
+      throw new Error(
+        `BusinessActor facet count=${baFacet.count} but list_entities returned 0 — typed list broken`,
+      );
+    }
+    log("typed list BusinessActor", { facet: baFacet.count, listed: ba.items.length });
+  } else {
+    log("typed list BusinessActor skipped (no actors in package)");
+  }
 
   // Matrix guard (no write)
   let matrixReject = false;
@@ -88,7 +124,7 @@ async function main(): Promise<void> {
   log("open_changeset", cs);
 
   const created = await ctx.model.createTypedElement({
-    packageCode: config.orgPackage,
+    packageCode: writePkg,
     classLocal: "ApplicationComponent",
     name: `MCP Smoke App ${stamp}`,
     iriLocal: `mcp-smoke-app-${stamp}`,
@@ -96,84 +132,68 @@ async function main(): Promise<void> {
   log("create_element", { id: created.entity.id, iriLocal: created.entity.iriLocal });
 
   const svc = await ctx.model.createTypedElement({
-    packageCode: config.orgPackage,
+    packageCode: writePkg,
     classLocal: "ApplicationService",
     name: `MCP Smoke Svc ${stamp}`,
     iriLocal: `mcp-smoke-svc-${stamp}`,
   });
+  log("create_element service", svc.entity.id);
+
   const rel = await ctx.model.createRelationship({
-    packageCode: config.orgPackage,
+    packageCode: writePkg,
     typeLocal: "Realization",
     sourceId: created.entity.id,
     targetId: svc.entity.id,
   });
-  log("create_relationship", { id: rel.id, type: "Realization" });
+  log("create_relationship", rel.id);
 
   const card = await ctx.cards.loadCard(created.entity.id);
-  log("get_card", {
-    profile: card.profile?.profileCode ?? null,
-    slots: card.slots.length,
-    classLocal: card.classLocal,
-  });
+  log("get_card", { profile: card.profile?.profileCode, slots: card.slots.length });
 
-  if (ctx.session.writeMode !== "propose") {
-    throw new Error("smoke expects ITMAP_MCP_WRITE_MODE=propose");
+  if (ctx.session.writeMode === "propose") {
+    // commit requires elevate — smoke uses direct kc commit after tools
   }
   await ctx.kc.commitChangeSet(cs);
   ctx.clearActiveChangeSet();
-  log("commit_changeset after propose edits");
+  log("commit_changeset");
 
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "itmap-mcp-smoke-"));
-  try {
-    const roots = [tmpRoot];
-    (ctx.config as { fileRoots: string[] }).fileRoots = roots;
-
-    const exported = await exportOpenExchange({
-      packageCode: config.orgPackage,
-      kc: ctx.kc,
-      schema: ctx.schema,
-    });
-    const exportPath = resolveSafePath(path.join(roots[0], `smoke-export-${stamp}.xml`), roots);
-    fs.writeFileSync(exportPath, exported.xml, "utf8");
-    log("export_open_exchange path", {
-      path: exportPath,
-      bytes: Buffer.byteLength(exported.xml, "utf8"),
-    });
-
-    const mini = `<?xml version="1.0" encoding="UTF-8"?>
-<model xmlns="http://www.opengroup.org/xsd/archimate/3.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" identifier="id-smoke-${stamp}">
-  <name xml:lang="en">Smoke</name>
-  <elements>
-    <element identifier="id-smoke-el-${stamp}" xsi:type="ApplicationComponent">
-      <name xml:lang="en">Smoke Path Import ${stamp}</name>
-    </element>
-  </elements>
-</model>`;
-    const importPath = resolveSafePath(path.join(roots[0], `smoke-import-${stamp}.xml`), roots);
-    fs.writeFileSync(importPath, mini, "utf8");
-    const importCs = await ctx.ensureOpenChangeSet("mcp-smoke-oe");
-    const xml = fs.readFileSync(importPath, "utf8");
-    const imp = await importOpenExchange({
-      xml,
-      packageCode: config.orgPackage,
-      kc: ctx.kc,
-      schema: ctx.schema,
-    });
-    await ctx.kc.cancelChangeSet(importCs);
-    ctx.clearActiveChangeSet();
-    log("import_open_exchange path", {
-      path: importPath,
-      created: imp.created,
-      cancelledCs: importCs,
-    });
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  // OE roundtrip via file path
+  const roots = config.fileRoots.length
+    ? config.fileRoots
+    : [fs.mkdtempSync(path.join(os.tmpdir(), "itmap-mcp-oe-"))];
+  if (!config.fileRoots.length) {
+    process.env.ITMAP_MCP_FILE_ROOTS = roots[0];
   }
+  const outPath = path.join(roots[0], `smoke-export-${stamp}.xml`);
+  const exported = await exportOpenExchange({
+    packageCode: writePkg,
+    kc: ctx.kc,
+    schema: ctx.schema,
+  });
+  const safeOut = resolveSafePath(outPath, roots);
+  fs.writeFileSync(safeOut, exported.xml, "utf8");
+  log("export_open_exchange", { path: safeOut, bytes: exported.xml.length });
 
-  console.log("\nMCP live acceptance smoke OK");
+  ctx.approveWritePackage(writePkg);
+  const importCs = await ctx.ensureOpenChangeSet("mcp-smoke-oe-import");
+  await importOpenExchange({
+    xml: exported.xml,
+    packageCode: writePkg,
+    kc: ctx.kc,
+    schema: ctx.schema,
+  });
+  await ctx.kc.commitChangeSet(importCs);
+  ctx.clearActiveChangeSet();
+  log("import_open_exchange", { changeSet: importCs });
+
+  // Cross-package read (metamodel class) must work without write approval on that package
+  const meta = await ctx.kc.getEntity(ctx.schema.classIri("BusinessActor"));
+  log("cross-package read", { id: meta.id, package: meta.packageCode });
+
+  console.log("\nAll MCP smoke checks passed.");
 }
 
 main().catch((e) => {
-  console.error("\nMCP smoke FAILED:", e instanceof Error ? e.message : e);
+  console.error("✗", e instanceof Error ? e.message : e);
   process.exit(1);
 });

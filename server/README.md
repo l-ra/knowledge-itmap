@@ -2,6 +2,25 @@
 
 MCP host for ArchiMate Lite / IT Map over Knowledge Core. Tools call `@itmap/archimate-core` only (no duplicated create/matrix logic).
 
+## Multipackage session
+
+| Concern | Behavior |
+|---------|----------|
+| **Read** | Unrestricted (any package, including metamodel) |
+| **Write allowlist** | `ITMAP_MCP_WRITE_PACKAGES` (CSV) |
+| **Session approval** | `approve_write_package({ packageCode, confirm: true })` before writes |
+| **Working package** | Default for write + default `package` filter on list/search/facets |
+
+See [`docs/adr-mcp-multipackage-session.md`](../docs/adr-mcp-multipackage-session.md).
+
+### Typical agent flow
+
+1. `get_session` / `health` — see allowlist  
+2. Read freely (`list_entity_facets`, `list_entities`, `get_entity`, …) with `package=org-ote`  
+3. `approve_write_package({ packageCode: "org-ote", confirm: true })`  
+4. Optional `configure_session({ workingPackage: "org-ote" })`  
+5. Write tools / ChangeSet / `commit_changeset`  
+
 ## Run
 
 ### Production binary (no tsx)
@@ -11,7 +30,8 @@ MCP host for ArchiMate Lite / IT Map over Knowledge Core. Tools call `@itmap/arc
 npm run mcp:build
 
 export ITMAP_KC_BASE_URL=http://localhost:8080
-export ITMAP_MCP_ORG_PACKAGE=org-demo
+export ITMAP_MCP_WRITE_PACKAGES=org-ote,org-demo
+export ITMAP_MCP_DEFAULT_PACKAGE=org-ote
 export ITMAP_MCP_WRITE_MODE=propose
 export ITMAP_MCP_AUTH_MODE=service
 export ITMAP_KC_AUTH_MODE=bootstrap
@@ -46,7 +66,8 @@ Against a running Knowledge Core (seeded metamodel + org package):
 
 ```bash
 export ITMAP_KC_BASE_URL=http://localhost:8080
-export ITMAP_MCP_ORG_PACKAGE=org-demo
+export ITMAP_MCP_WRITE_PACKAGES=org-demo
+export ITMAP_MCP_DEFAULT_PACKAGE=org-demo
 export ITMAP_MCP_AUTH_MODE=service
 export ITMAP_KC_AUTH_MODE=bootstrap
 export ITMAP_KC_TOKEN='…'
@@ -58,14 +79,16 @@ KC_TOKEN="$ITMAP_KC_TOKEN" npm run setup:seed   # or create org-demo in UI
 npm run mcp:smoke
 ```
 
-Smoke covers: healthz, schema, primer, list entities, AllowedRelationship reject, open CS, create element/relationship, get_card, commit, OE export/import via **file path**.
+Smoke covers: healthz, schema, primer, write-gate without approval, approve, list entities, typed BusinessActor list when present, AllowedRelationship reject, open CS, create element/relationship, get_card, commit, OE export/import via **file path**, cross-package read.
 
 ## Environment
 
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
 | `ITMAP_KC_BASE_URL` | yes | — | KC `/v1` base |
-| `ITMAP_MCP_ORG_PACKAGE` | yes | — | Fixed for the session |
+| `ITMAP_MCP_WRITE_PACKAGES` | yes* | — | CSV write allowlist |
+| `ITMAP_MCP_DEFAULT_PACKAGE` | | first allowlist / legacy | Must be ⊆ allowlist |
+| `ITMAP_MCP_ORG_PACKAGE` | legacy* | — | If `WRITE_PACKAGES` unset → single-item allowlist + default |
 | `ITMAP_MCP_LANG` | | `cs` | `cs` \| `en` |
 | `ITMAP_MCP_WRITE_MODE` | | `propose` | `propose` \| `commit` |
 | `ITMAP_MCP_AUTH_MODE` | | `service` | `service` \| `forward` |
@@ -78,7 +101,7 @@ Smoke covers: healthz, schema, primer, list entities, AllowedRelationship reject
 | `ITMAP_MCP_OE_MAX_BYTES` | | `5000000` | Open Exchange XML size limit |
 | `ITMAP_MCP_FILE_ROOTS` | for path OE | empty | Colon- or comma-separated absolute dirs; required for `path=` on import/export |
 
-\* With `ITMAP_KC_AUTH_MODE=dev`, token may be empty (X-Subject / X-Roles) if KC allows it.
+\* Provide `WRITE_PACKAGES` **or** legacy `ORG_PACKAGE`. With `ITMAP_KC_AUTH_MODE=dev`, token may be empty.
 
 ## Cursor `mcp.json` (bundled binary)
 
@@ -90,7 +113,8 @@ Smoke covers: healthz, schema, primer, list entities, AllowedRelationship reject
       "args": ["/absolute/path/to/knowledge-itmap/server/dist/index.js"],
       "env": {
         "ITMAP_KC_BASE_URL": "http://localhost:8080",
-        "ITMAP_MCP_ORG_PACKAGE": "org-demo",
+        "ITMAP_MCP_WRITE_PACKAGES": "org-ote,org-demo",
+        "ITMAP_MCP_DEFAULT_PACKAGE": "org-ote",
         "ITMAP_MCP_TRANSPORT": "stdio",
         "ITMAP_MCP_WRITE_MODE": "propose",
         "ITMAP_MCP_AUTH_MODE": "service",
@@ -103,11 +127,27 @@ Smoke covers: healthz, schema, primer, list entities, AllowedRelationship reject
 }
 ```
 
+Prefer a **single** MCP server process. After changing env, reload the MCP server in Cursor.
+
 ## Session rules
 
-- **orgPackage** is set from env and cannot be changed via `configure_session` (rejected if attempted).
-- Metamodel packages are never writable: `archimate-lite`, `kc-base`, `archimate-ui-traversal`, `archimate-ui-cards`, `architecture-migration`.
+- **Read:** no package gate.
+- **Write:** package ∈ `writePackagesAllowlist` ∧ session-approved ∧ not metamodel.
+- Metamodel packages never writable: `archimate-lite`, `kc-base`, `archimate-ui-traversal`, `archimate-ui-cards`, `architecture-migration`.
 - Writes use `X-Validation-Mode: strict` and always bind an open ChangeSet.
+- Deprecated `orgPackage` on `get_session` / `configure_session` aliases `workingPackage`.
+
+## Explore tools (catalog reviews)
+
+| Tool | Use |
+|------|-----|
+| `list_entity_facets` | Counts by `instanceOf` |
+| `list_entities` | `instanceOfLocal`, `includeProperties`, `package` |
+| `list_relationships` | By relationship type + optional ends |
+| `get_neighborhood` | Resolved `{relType, direction, other}` (optional `raw`) |
+| `batch_get_entities` | Up to 200 ids |
+| `inventory_report` | Facets + sample labels |
+| `health` | KC + schema + allowlist |
 
 ## Elevate / commit
 
@@ -116,14 +156,14 @@ Smoke covers: healthz, schema, primer, list entities, AllowedRelationship reject
 | `propose` | Requires `confirm_commit: true` (explicit user confirmation) |
 | `commit` | Commits without that flag |
 
-Open Exchange import always opens a ChangeSet; it auto-commits only when `writeMode=commit`.
+Open Exchange import always opens a ChangeSet; it auto-commits only when `writeMode=commit`. Target package must be write-approved.
 
 ## Open Exchange I/O
 
 | Mode | How |
 |------|-----|
-| XML string | `import_open_exchange({ xml })` / `export_open_exchange({})` |
-| File path | `import_open_exchange({ path })` / `export_open_exchange({ path })` — path must be under `ITMAP_MCP_FILE_ROOTS` (realpath sandbox) |
+| XML string | `import_open_exchange({ xml, packageCode? })` / `export_open_exchange({ packageCode? })` |
+| File path | `path` under `ITMAP_MCP_FILE_ROOTS` |
 
 Provide **exactly one** of `xml` or `path` on import. Large exports should use `path`.
 

@@ -7,7 +7,14 @@ export type McpTransport = "stdio" | "http";
 
 export type McpServerConfig = {
   kcBaseUrl: string;
-  orgPackage: string;
+  /** Packages allowed for write (config allowlist). */
+  writePackages: string[];
+  /** Optional default working package (must be ⊆ writePackages). */
+  defaultPackage: string | null;
+  /**
+   * @deprecated Prefer writePackages + defaultPackage. Kept for get_session compat alias.
+   */
+  orgPackage: string | null;
   lang: McpLang;
   writeMode: McpWriteMode;
   authMode: McpAuthMode;
@@ -66,6 +73,51 @@ function parseKcAuthMode(
   throw new Error(`ITMAP_KC_AUTH_MODE must be bootstrap|dev|oidc|bearer, got: ${raw}`);
 }
 
+/** Split CSV / colon / comma package lists; unique, non-empty. */
+export function parsePackageList(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[,:;]+/)) {
+    const code = part.trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
+}
+
+/**
+ * Resolve write allowlist + default package.
+ * Compat: ITMAP_MCP_ORG_PACKAGE alone → allowlist=[that] + default=that.
+ */
+export function resolvePackageConfig(env: NodeJS.ProcessEnv = process.env): {
+  writePackages: string[];
+  defaultPackage: string | null;
+} {
+  const fromWrite = parsePackageList(env.ITMAP_MCP_WRITE_PACKAGES);
+  const legacy = env.ITMAP_MCP_ORG_PACKAGE?.trim() || "";
+  const fromDefault = env.ITMAP_MCP_DEFAULT_PACKAGE?.trim() || "";
+
+  let writePackages = fromWrite;
+  if (writePackages.length === 0 && legacy) {
+    writePackages = [legacy];
+  }
+  if (writePackages.length === 0) {
+    throw new Error(
+      "Set ITMAP_MCP_WRITE_PACKAGES (CSV) or legacy ITMAP_MCP_ORG_PACKAGE for write allowlist",
+    );
+  }
+
+  let defaultPackage: string | null = fromDefault || legacy || writePackages[0] || null;
+  if (defaultPackage && !writePackages.includes(defaultPackage)) {
+    throw new Error(
+      `ITMAP_MCP_DEFAULT_PACKAGE / ORG_PACKAGE „${defaultPackage}“ is not in write allowlist [${writePackages.join(", ")}]`,
+    );
+  }
+  return { writePackages, defaultPackage };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfig {
   const authMode = parseAuthMode(env.ITMAP_MCP_AUTH_MODE);
   const kcAuthMode = parseKcAuthMode(env.ITMAP_KC_AUTH_MODE);
@@ -89,9 +141,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     throw new Error(`ITMAP_MCP_HTTP_PORT must be a positive number, got: ${portRaw}`);
   }
 
+  const { writePackages, defaultPackage } = resolvePackageConfig(env);
+
   return {
     kcBaseUrl: requireEnv("ITMAP_KC_BASE_URL").replace(/\/+$/, ""),
-    orgPackage: requireEnv("ITMAP_MCP_ORG_PACKAGE"),
+    writePackages,
+    defaultPackage,
+    orgPackage: defaultPackage,
     lang: parseLang(env.ITMAP_MCP_LANG),
     writeMode: parseWriteMode(env.ITMAP_MCP_WRITE_MODE),
     authMode,

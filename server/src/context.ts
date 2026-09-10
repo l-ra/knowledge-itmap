@@ -29,6 +29,8 @@ export class AppContext {
   readonly cards: CardsService;
   readonly views: ViewService;
   readonly cardsLoader: CardsProfileLoader;
+  readonly startedAt: string;
+  readonly pid: number;
 
   private constructor(
     config: McpServerConfig,
@@ -45,13 +47,16 @@ export class AppContext {
     this.model = new ModelService(kc, schema);
     this.cards = new CardsService(kc, schema, cardsLoader);
     this.views = new ViewService(kc, schema);
+    this.startedAt = new Date().toISOString();
+    this.pid = process.pid;
   }
 
   static create(config: McpServerConfig, session?: McpSessionState): AppContext {
     const sess =
       session ??
       new McpSessionState({
-        orgPackage: config.orgPackage,
+        writePackagesAllowlist: config.writePackages,
+        defaultPackage: config.defaultPackage,
         lang: config.lang,
         writeMode: config.writeMode,
         authMode: config.authMode,
@@ -79,20 +84,61 @@ export class AppContext {
     }
   }
 
-  assertOrgPackageWritable(packageCode: string): void {
+  /**
+   * Resolve package for a write operation.
+   * Explicit packageCode wins; else session.workingPackage.
+   */
+  resolveWritePackage(packageCode?: string | null): string {
+    const code = (packageCode?.trim() || this.session.workingPackage || "").trim();
+    if (!code) {
+      throw new Error(
+        "No write package: pass packageCode or set workingPackage after approve_write_package",
+      );
+    }
+    this.assertWritable(code);
+    return code;
+  }
+
+  /**
+   * Package scope for list/search/facets.
+   * Explicit arg → that package; else workingPackage if set; else undefined (unfiltered).
+   */
+  resolveReadPackage(packageCode?: string | null): string | undefined {
+    if (packageCode !== undefined && packageCode !== null && packageCode !== "") {
+      return packageCode.trim();
+    }
+    return this.session.workingPackage ?? undefined;
+  }
+
+  assertWritable(packageCode: string): void {
     if (METAMODEL_PACKAGES.has(packageCode)) {
       throw new Error(`Write denied: metamodel package „${packageCode}“`);
     }
-    if (packageCode !== this.session.orgPackage) {
+    if (!this.session.writePackagesAllowlist.includes(packageCode)) {
       throw new Error(
-        `Write denied: package „${packageCode}“ is outside session orgPackage „${this.session.orgPackage}“`,
+        `Write denied: „${packageCode}“ is outside config allowlist [${this.session.writePackagesAllowlist.join(", ")}]`,
+      );
+    }
+    if (!this.session.isApprovedForWrite(packageCode)) {
+      throw new Error(
+        `Write denied: „${packageCode}“ is not session-approved. Call approve_write_package({ packageCode: \"${packageCode}\", confirm: true }).`,
       );
     }
   }
 
-  /**
-   * Ensure an open ChangeSet is bound as manual CS so ModelService / OE do not auto-commit.
-   */
+  /** Approve write for package (allowlist + metamodel checks). */
+  approveWritePackage(packageCode: string): void {
+    if (METAMODEL_PACKAGES.has(packageCode)) {
+      throw new Error(`Write denied: metamodel package „${packageCode}“`);
+    }
+    this.session.approveWritePackage(packageCode);
+  }
+
+  /** @deprecated Use assertWritable / resolveWritePackage. */
+  assertOrgPackageWritable(packageCode: string): void {
+    this.assertWritable(packageCode);
+  }
+
   /**
    * Ensure auth is usable before KC calls in forward mode.
    */
@@ -114,9 +160,10 @@ export class AppContext {
     }
 
     const actor = this.config.actor ? ` actor=${this.config.actor}` : "";
+    const pkg = this.session.workingPackage ? ` package=${this.session.workingPackage}` : "";
     const cs = await this.kc.openChangeSet({
       operationType: "mcp",
-      comment: `mcp:${toolName}${actor}`,
+      comment: `mcp:${toolName}${pkg}${actor}`,
     });
     this.kc.setManualChangeSet(cs.id);
     this.session.activeChangeSetId = cs.id;

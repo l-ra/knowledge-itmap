@@ -17,6 +17,11 @@ import {
 } from "@itmap/archimate-core";
 import { z } from "zod";
 import type { AppContext } from "./context.js";
+import {
+  enrichListedEntity,
+  resolveNeighborhoodLinks,
+  summarizeEntity,
+} from "./entityHelpers.js";
 import { resolveSafePath } from "./paths.js";
 
 const ABSTRACT_EXTRA = new Set([
@@ -153,7 +158,8 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "get_session",
     {
-      description: "Return current MCP session (orgPackage, lang, writeMode, active ChangeSet)",
+      description:
+        "Return MCP session: workingPackage, write allowlist, approved write packages, lang, writeMode, active ChangeSet",
       inputSchema: z.object({}),
     },
     async () =>
@@ -162,6 +168,10 @@ export function createMcpServer(ctx: AppContext): McpServer {
         fileRoots: ctx.config.fileRoots,
         oeMaxBytes: ctx.config.oeMaxBytes,
         writeValidation: "strict",
+        pid: ctx.pid,
+        startedAt: ctx.startedAt,
+        readPolicy: "unrestricted",
+        writePolicy: "allowlist_and_session_approval",
       })),
   );
 
@@ -169,11 +179,20 @@ export function createMcpServer(ctx: AppContext): McpServer {
     "configure_session",
     {
       description:
-        "Update session lang and/or writeMode. orgPackage is immutable — attempts to change it are rejected. Optional forwardedToken for authMode=forward.",
+        "Update lang, writeMode, and/or workingPackage (must already be session-approved). Optional forwardedToken for authMode=forward. Deprecated: orgPackage aliases workingPackage.",
       inputSchema: z.object({
         lang: z.enum(["cs", "en"]).optional(),
         writeMode: z.enum(["propose", "commit"]).optional(),
-        orgPackage: z.string().optional().describe("Must match session orgPackage if provided"),
+        workingPackage: z
+          .string()
+          .nullable()
+          .optional()
+          .describe("Must be in approvedWritePackages"),
+        orgPackage: z
+          .string()
+          .nullable()
+          .optional()
+          .describe("Deprecated alias for workingPackage"),
         forwardedToken: z
           .string()
           .optional()
@@ -189,8 +208,46 @@ export function createMcpServer(ctx: AppContext): McpServer {
         return ctx.session.configure({
           lang: args.lang,
           writeMode: args.writeMode,
+          workingPackage: args.workingPackage,
           orgPackage: args.orgPackage,
         });
+      }),
+  );
+
+  server.registerTool(
+    "approve_write_package",
+    {
+      description:
+        "Approve a package for write in this session. Package must be in config write allowlist. Requires confirm: true.",
+      inputSchema: z.object({
+        packageCode: z.string(),
+        confirm: z
+          .boolean()
+          .describe("Must be true — explicit per-session write approval"),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "approve_write_package", async () => {
+        if (args.confirm !== true) {
+          throw new Error("approve_write_package requires confirm: true");
+        }
+        ctx.approveWritePackage(args.packageCode);
+        return ctx.session.getPublicView();
+      }),
+  );
+
+  server.registerTool(
+    "revoke_write_package",
+    {
+      description: "Revoke session write approval for a package",
+      inputSchema: z.object({
+        packageCode: z.string(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "revoke_write_package", async () => {
+        ctx.session.revokeWritePackage(args.packageCode);
+        return ctx.session.getPublicView();
       }),
   );
 
@@ -435,22 +492,34 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "search_entities",
     {
-      description: "Search entities in the session org package",
+      description:
+        "Search entities. Optional package filter (default: workingPackage if set, else unfiltered). Optional instanceOfLocal class filter.",
       inputSchema: z.object({
         q: z.string(),
+        package: z.string().optional(),
+        instanceOfLocal: z.string().optional(),
         limit: z.number().int().positive().max(100).optional(),
       }),
     },
     async (args) =>
       withTool(ctx, "search_entities", async () => {
+        await ctx.ensureSchemaLoaded();
+        const pkg = ctx.resolveReadPackage(args.package);
+        const instanceOf = args.instanceOfLocal
+          ? ctx.schema.classIri(args.instanceOfLocal)
+          : undefined;
         const page = await ctx.kc.listEntities({
-          package: ctx.session.orgPackage,
+          package: pkg,
           kind: "entity",
           q: args.q,
+          instanceOf,
+          includeSubclasses: instanceOf ? true : undefined,
           limit: args.limit ?? 30,
+          include: "effectiveClasses",
         });
         return {
-          items: (page.items || []).map(summarizeEntity),
+          package: pkg ?? null,
+          items: (page.items || []).map((e) => summarizeEntity(e, ctx)),
           nextCursor: page.nextCursor,
         };
       }),
@@ -459,9 +528,13 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "list_entities",
     {
-      description: "List entities in the session org package (optional instanceOf filter)",
+      description:
+        "List entities. Optional package (default workingPackage if set). Optional instanceOfLocal, includeProperties, includeEffectiveClasses.",
       inputSchema: z.object({
+        package: z.string().optional(),
         instanceOfLocal: z.string().optional(),
+        includeEffectiveClasses: z.boolean().optional(),
+        includeProperties: z.array(z.string()).optional(),
         limit: z.number().int().positive().max(200).optional(),
         cursor: z.string().optional(),
       }),
@@ -469,19 +542,35 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "list_entities", async () => {
         await ctx.ensureSchemaLoaded();
+        const pkg = ctx.resolveReadPackage(args.package);
         const instanceOf = args.instanceOfLocal
           ? ctx.schema.classIri(args.instanceOfLocal)
           : undefined;
+        const includeEffectiveClasses = args.includeEffectiveClasses !== false;
+        const includeParts = ["effectiveClasses"];
+        const props = args.includeProperties?.filter(Boolean) || [];
         const page = await ctx.kc.listEntities({
-          package: ctx.session.orgPackage,
+          package: pkg,
           kind: "entity",
           instanceOf,
-          includeSubclasses: true,
+          includeSubclasses: instanceOf ? true : undefined,
           limit: args.limit ?? 50,
           cursor: args.cursor,
+          include: includeParts.join(","),
         });
+        const items = [];
+        for (const e of page.items || []) {
+          items.push(
+            await enrichListedEntity(ctx, e, {
+              includeEffectiveClasses,
+              includeProperties: props.length ? props : undefined,
+            }),
+          );
+        }
         return {
-          items: (page.items || []).map(summarizeEntity),
+          package: pkg ?? null,
+          resolvedInstanceOf: instanceOf ?? null,
+          items,
           nextCursor: page.nextCursor,
         };
       }),
@@ -499,7 +588,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
         const entity = await ctx.kc.getEntity(args.id);
         const stmts = await ctx.kc.getStatements(args.id);
         return {
-          entity: summarizeEntity(entity),
+          entity: summarizeEntity(entity, ctx),
           statements: stmts.items.map((s) => ({
             id: s.id,
             property: ctx.schema.propertyLocal(s.property) || s.property,
@@ -515,22 +604,35 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "get_neighborhood",
     {
-      description: "Graph neighborhood (depth 1–2)",
+      description:
+        "Graph neighborhood (depth 1–2). By default returns resolved links {relType, direction, other}. Pass raw:true for KC statements.",
       inputSchema: z.object({
         id: z.string(),
         depth: z.number().int().min(1).max(2).optional(),
+        raw: z.boolean().optional(),
+        relTypes: z.array(z.string()).optional(),
+        classLocals: z.array(z.string()).optional(),
       }),
     },
     async (args) =>
       withTool(ctx, "get_neighborhood", async () => {
+        await ctx.ensureSchemaLoaded();
         const depth = args.depth ?? 1;
         const graph = await ctx.kc.getGraph(args.id, depth);
-        return {
-          entity: summarizeEntity(graph.entity),
-          outgoing: graph.outgoing,
-          incoming: graph.incoming,
-          neighbors: (graph.neighbors || []).map(summarizeEntity),
+        const links = await resolveNeighborhoodLinks(ctx, args.id, graph, {
+          relTypes: args.relTypes,
+          classLocals: args.classLocals,
+        });
+        const result: Record<string, unknown> = {
+          entity: summarizeEntity(graph.entity, ctx),
+          links,
+          neighbors: (graph.neighbors || []).map((n) => summarizeEntity(n, ctx)),
         };
+        if (args.raw) {
+          result.outgoing = graph.outgoing;
+          result.incoming = graph.incoming;
+        }
+        return result;
       }),
   );
 
@@ -588,8 +690,9 @@ export function createMcpServer(ctx: AppContext): McpServer {
     "create_element",
     {
       description:
-        "Create an ArchiMate element in the session package (open ChangeSet). Optional relationship to selectedId.",
+        "Create an ArchiMate element (open ChangeSet). Optional relationship to selectedId.",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         name: z.string(),
         classLocal: z.string(),
         description: z.string().optional(),
@@ -604,7 +707,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "create_element", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("create_element");
         const link =
           args.selectedId && args.relationshipType
@@ -615,7 +718,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
               }
             : undefined;
         const result = await ctx.model.createTypedElement({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           classLocal: args.classLocal,
           name: args.name,
           descriptions: args.description
@@ -625,8 +728,8 @@ export function createMcpServer(ctx: AppContext): McpServer {
           link,
         });
         return {
-          entity: summarizeEntity(result.entity),
-          relationship: result.relationship ? summarizeEntity(result.relationship) : undefined,
+          entity: summarizeEntity(result.entity, ctx),
+          relationship: result.relationship ? summarizeEntity(result.relationship, ctx) : undefined,
           changeSetId: result.changeSet.id,
         };
       }),
@@ -637,6 +740,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Create a relationship (rejects if !isAllowed)",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         typeLocal: z.string(),
         sourceId: z.string(),
         targetId: z.string(),
@@ -646,16 +750,16 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "create_relationship", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("create_relationship");
         const entity = await ctx.model.createRelationship({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           typeLocal: args.typeLocal,
           sourceId: args.sourceId,
           targetId: args.targetId,
           props: args.props,
         });
-        return { entity: summarizeEntity(entity) };
+        return { entity: summarizeEntity(entity, ctx) };
       }),
   );
 
@@ -664,6 +768,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Set/replace a string property on an entity",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         id: z.string(),
         propertyLocal: z.string(),
         value: z.string(),
@@ -672,7 +777,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "set_property", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("set_property");
         const existingPage = await ctx.kc.getStatements(
           args.id,
@@ -680,7 +785,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
         );
         const existing = existingPage.items[0];
         const changeSet = await ctx.model.replaceStringProperty({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           subject: args.id,
           propertyLocal: args.propertyLocal,
           newValue: args.value,
@@ -695,6 +800,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Clear a property by deprecating its statement(s)",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         id: z.string(),
         propertyLocal: z.string(),
       }),
@@ -702,7 +808,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "clear_property", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("clear_property");
         const propIri = ctx.schema.propertyIri(args.propertyLocal);
         const page = await ctx.kc.getStatements(args.id, propIri);
@@ -717,8 +823,9 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "deprecate_entity",
     {
-      description: "Deprecate an entity in the session package",
+      description: "Deprecate an entity",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         id: z.string(),
         expectedRevision: z.number().int().optional(),
       }),
@@ -726,13 +833,16 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "deprecate_entity", async () => {
         const entity = await ctx.kc.getEntity(args.id);
-        if (entity.packageCode) ctx.assertOrgPackageWritable(entity.packageCode);
-        else ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode || entity.packageCode);
         await ctx.ensureOpenChangeSet("deprecate_entity");
         const res = await ctx.kc.deprecateEntity(args.id, {
           expectedRevision: args.expectedRevision,
         });
-        return { entity: summarizeEntity(res.data), changeSetId: res.changeSet.id };
+        return {
+          entity: summarizeEntity(res.data, ctx),
+          changeSetId: res.changeSet.id,
+          packageCode,
+        };
       }),
   );
 
@@ -741,14 +851,20 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "list_views",
     {
-      description: "List DiagramView entities in the session package",
-      inputSchema: z.object({}),
+      description: "List DiagramView entities (package defaults to workingPackage if set)",
+      inputSchema: z.object({
+        package: z.string().optional(),
+      }),
     },
-    async () =>
+    async (args) =>
       withTool(ctx, "list_views", async () => {
         await ctx.ensureSchemaLoaded();
-        const items = await ctx.views.listViews(ctx.session.orgPackage);
-        return { items: items.map(summarizeEntity) };
+        const pkg = ctx.resolveReadPackage(args.package);
+        if (!pkg) {
+          throw new Error("list_views requires package= or an approved workingPackage");
+        }
+        const items = await ctx.views.listViews(pkg);
+        return { package: pkg, items: items.map((e) => summarizeEntity(e, ctx)) };
       }),
   );
 
@@ -763,9 +879,9 @@ export function createMcpServer(ctx: AppContext): McpServer {
         await ctx.ensureSchemaLoaded();
         const detail = await ctx.views.getView(args.id);
         return {
-          view: summarizeEntity(detail.view),
-          nodes: detail.nodes.map(summarizeEntity),
-          connections: detail.connections.map(summarizeEntity),
+          view: summarizeEntity(detail.view, ctx),
+          nodes: detail.nodes.map((e) => summarizeEntity(e, ctx)),
+          connections: detail.connections.map((e) => summarizeEntity(e, ctx)),
         };
       }),
   );
@@ -775,6 +891,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Create a DiagramView",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         name: z.string(),
         viewpoint: z.string().optional(),
         description: z.string().optional(),
@@ -783,17 +900,17 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "create_view", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("create_view");
         const res = await ctx.views.createView({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           name: args.name,
           viewpoint: args.viewpoint,
           descriptions: args.description
             ? { en: args.description, cs: args.description }
             : undefined,
         });
-        return { entity: summarizeEntity(res.entity), changeSetId: res.changeSet.id };
+        return { entity: summarizeEntity(res.entity, ctx), changeSetId: res.changeSet.id };
       }),
   );
 
@@ -802,6 +919,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Add a ViewNode to a DiagramView",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         viewId: z.string(),
         elementRef: z.string().optional(),
         bounds: z
@@ -820,10 +938,10 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "add_view_node", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("add_view_node");
         const res = await ctx.views.addViewNode({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           viewId: args.viewId,
           elementRef: args.elementRef,
           bounds: args.bounds,
@@ -831,7 +949,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
           styleJson: args.styleJson,
           nodeKind: args.nodeKind,
         });
-        return { entity: summarizeEntity(res.entity), changeSetId: res.changeSet.id };
+        return { entity: summarizeEntity(res.entity, ctx), changeSetId: res.changeSet.id };
       }),
   );
 
@@ -840,6 +958,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Update a ViewNode",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         nodeId: z.string(),
         elementRef: z.string().nullable().optional(),
         bounds: z
@@ -858,10 +977,10 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "update_view_node", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("update_view_node");
         const res = await ctx.views.updateViewNode({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           nodeId: args.nodeId,
           elementRef: args.elementRef,
           bounds: args.bounds,
@@ -870,7 +989,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
           nodeKind: args.nodeKind,
         });
         return {
-          entity: res.entity ? summarizeEntity(res.entity) : undefined,
+          entity: res.entity ? summarizeEntity(res.entity, ctx) : undefined,
           changeSetId: res.changeSet.id,
         };
       }),
@@ -881,6 +1000,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Add a ViewConnection between nodes",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         viewId: z.string(),
         sourceNodeId: z.string(),
         targetNodeId: z.string(),
@@ -892,10 +1012,10 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "add_view_connection", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("add_view_connection");
         const res = await ctx.views.addViewConnection({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           viewId: args.viewId,
           sourceNodeId: args.sourceNodeId,
           targetNodeId: args.targetNodeId,
@@ -903,7 +1023,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
           bendpointsJson: args.bendpointsJson,
           styleJson: args.styleJson,
         });
-        return { entity: summarizeEntity(res.entity), changeSetId: res.changeSet.id };
+        return { entity: summarizeEntity(res.entity, ctx), changeSetId: res.changeSet.id };
       }),
   );
 
@@ -912,6 +1032,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Update a ViewConnection",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         connectionId: z.string(),
         sourceNodeId: z.string().optional(),
         targetNodeId: z.string().optional(),
@@ -923,10 +1044,10 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "update_view_connection", async () => {
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("update_view_connection");
         const res = await ctx.views.updateViewConnection({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           connectionId: args.connectionId,
           sourceNodeId: args.sourceNodeId,
           targetNodeId: args.targetNodeId,
@@ -935,7 +1056,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
           styleJson: args.styleJson,
         });
         return {
-          entity: res.entity ? summarizeEntity(res.entity) : undefined,
+          entity: res.entity ? summarizeEntity(res.entity, ctx) : undefined,
           changeSetId: res.changeSet.id,
         };
       }),
@@ -946,13 +1067,14 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Deprecate a ViewNode",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         id: z.string(),
         expectedRevision: z.number().int().optional(),
       }),
     },
     async (args) =>
       withTool(ctx, "remove_view_node", async () => {
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("remove_view_node");
         const changeSet = await ctx.views.removeViewEntity(args.id, args.expectedRevision);
         return { changeSetId: changeSet.id };
@@ -964,13 +1086,14 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Deprecate a ViewConnection",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         id: z.string(),
         expectedRevision: z.number().int().optional(),
       }),
     },
     async (args) =>
       withTool(ctx, "remove_view_connection", async () => {
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("remove_view_connection");
         const changeSet = await ctx.views.removeViewEntity(args.id, args.expectedRevision);
         return { changeSetId: changeSet.id };
@@ -982,13 +1105,14 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Deprecate a DiagramView",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         id: z.string(),
         expectedRevision: z.number().int().optional(),
       }),
     },
     async (args) =>
       withTool(ctx, "remove_view", async () => {
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("remove_view");
         const changeSet = await ctx.views.removeViewEntity(args.id, args.expectedRevision);
         return { changeSetId: changeSet.id };
@@ -1000,8 +1124,9 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "import_open_exchange",
     {
-      description: `Import ArchiMate Open Exchange XML into session package (max ${ctx.config.oeMaxBytes} bytes). Provide either xml string or path (under ITMAP_MCP_FILE_ROOTS). Always opens a ChangeSet; commits only when writeMode=commit.`,
+      description: `Import ArchiMate Open Exchange XML into a writable package (max ${ctx.config.oeMaxBytes} bytes). Provide either xml string or path (under ITMAP_MCP_FILE_ROOTS). Always opens a ChangeSet; commits only when writeMode=commit.`,
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         xml: z.string().optional().describe("Open Exchange XML string"),
         path: z.string().optional().describe("Absolute path under ITMAP_MCP_FILE_ROOTS"),
       }),
@@ -1028,11 +1153,11 @@ export function createMcpServer(ctx: AppContext): McpServer {
           );
         }
         await ctx.ensureSchemaLoaded();
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
         const changeSetId = await ctx.ensureOpenChangeSet("import_open_exchange");
         const result = await importOpenExchange({
           xml,
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           kc: ctx.kc,
           schema: ctx.schema,
         });
@@ -1060,8 +1185,9 @@ export function createMcpServer(ctx: AppContext): McpServer {
     "export_open_exchange",
     {
       description:
-        "Export session package as Open Exchange XML. Without path returns xml string; with path writes under ITMAP_MCP_FILE_ROOTS and returns path + counts.",
+        "Export a package as Open Exchange XML. Without path returns xml string; with path writes under ITMAP_MCP_FILE_ROOTS and returns path + counts.",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         path: z
           .string()
           .optional()
@@ -1071,8 +1197,14 @@ export function createMcpServer(ctx: AppContext): McpServer {
     async (args) =>
       withTool(ctx, "export_open_exchange", async () => {
         await ctx.ensureSchemaLoaded();
+        const packageCode =
+          args.packageCode?.trim() ||
+          ctx.session.workingPackage ||
+          (() => {
+            throw new Error("export_open_exchange requires packageCode= or workingPackage");
+          })();
         const result = await exportOpenExchange({
-          packageCode: ctx.session.orgPackage,
+          packageCode,
           kc: ctx.kc,
           schema: ctx.schema,
         });
@@ -1108,6 +1240,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     {
       description: "Apply orphan actions after Open Exchange import (deprecate / keep / etc.)",
       inputSchema: z.object({
+        packageCode: z.string().optional(),
         actions: z.array(
           z.object({
             orphan: z.object({
@@ -1131,7 +1264,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
     },
     async (args) =>
       withTool(ctx, "apply_open_exchange_orphans", async () => {
-        ctx.assertOrgPackageWritable(ctx.session.orgPackage);
+        ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("apply_open_exchange_orphans");
         const mapped = args.actions.map((a) => ({
           orphan: a.orphan as OrphanCandidate,
@@ -1142,25 +1275,238 @@ export function createMcpServer(ctx: AppContext): McpServer {
       }),
   );
 
-  return server;
-}
+  // ── Explore / inventory (phase B–D) ─────────────────────────────────────
 
-function summarizeEntity(e: {
-  id: string;
-  labels?: Record<string, string>;
-  iriLocal?: string;
-  packageCode?: string;
-  status?: string;
-  revisionNo?: number;
-  effectiveClasses?: string[];
-}) {
-  return {
-    id: e.id,
-    label: e.labels ? entityLabel(e as never) : e.iriLocal || e.id,
-    iriLocal: e.iriLocal,
-    packageCode: e.packageCode,
-    status: e.status,
-    revisionNo: e.revisionNo,
-    effectiveClasses: e.effectiveClasses,
-  };
+  server.registerTool(
+    "list_entity_facets",
+    {
+      description:
+        "Facet counts by instanceOf (or other groupBy). package defaults to workingPackage if set.",
+      inputSchema: z.object({
+        package: z.string().optional(),
+        groupBy: z.string().optional().describe("Default instanceOf"),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "list_entity_facets", async () => {
+        await ctx.ensureSchemaLoaded();
+        const pkg = ctx.resolveReadPackage(args.package);
+        const facetsResp = await ctx.kc.listEntityFacets({
+          package: pkg,
+          groupBy: args.groupBy || "instanceOf",
+        });
+        const items = (facetsResp.facets || []).map((f) => ({
+          classId: f.classId,
+          classLocal: ctx.schema.classLocal(f.classId) || f.classId.split("/").pop() || f.classId,
+          count: f.count,
+        }));
+        items.sort((a, b) => b.count - a.count || a.classLocal.localeCompare(b.classLocal));
+        return { package: pkg ?? null, groupBy: args.groupBy || "instanceOf", items };
+      }),
+  );
+
+  server.registerTool(
+    "list_relationships",
+    {
+      description:
+        "List relationships of a type in a package, with source/target labels resolved.",
+      inputSchema: z.object({
+        package: z.string().optional(),
+        relationshipTypeLocal: z.string(),
+        sourceId: z.string().optional(),
+        targetId: z.string().optional(),
+        limit: z.number().int().positive().max(200).optional(),
+        cursor: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "list_relationships", async () => {
+        await ctx.ensureSchemaLoaded();
+        if (!isRelationshipClassLocal(args.relationshipTypeLocal)) {
+          throw new Error(`Not a relationship type: ${args.relationshipTypeLocal}`);
+        }
+        const pkg = ctx.resolveReadPackage(args.package);
+        const instanceOf = ctx.schema.classIri(args.relationshipTypeLocal);
+        const page = await ctx.kc.listEntities({
+          package: pkg,
+          kind: "entity",
+          instanceOf,
+          includeSubclasses: true,
+          limit: args.limit ?? 50,
+          cursor: args.cursor,
+          include: "statements",
+          properties: "relSource,relTarget,instanceOf",
+        });
+        const items = [];
+        for (const e of page.items || []) {
+          let source: string | undefined;
+          let target: string | undefined;
+          for (const s of e.statements || []) {
+            const pl = ctx.schema.propertyLocal(s.property) || s.property.split("/").pop();
+            if (pl === "relSource" && s.value?.type === "EntityReference") source = s.value.entityId;
+            if (pl === "relTarget" && s.value?.type === "EntityReference") target = s.value.entityId;
+          }
+          if (!source || !target) {
+            const stmts = await ctx.kc.getStatements(e.id);
+            for (const s of stmts.items) {
+              const pl = ctx.schema.propertyLocal(s.property) || s.property.split("/").pop();
+              if (pl === "relSource" && s.value?.type === "EntityReference") source = s.value.entityId;
+              if (pl === "relTarget" && s.value?.type === "EntityReference") target = s.value.entityId;
+            }
+          }
+          if (args.sourceId && source !== args.sourceId) continue;
+          if (args.targetId && target !== args.targetId) continue;
+          const ends = await ctx.kc.batchReadEntities({
+            ids: [source, target].filter(Boolean) as string[],
+          });
+          const byId = new Map(
+            (ends.results || []).filter((r) => r.entity).map((r) => [r.id, r.entity!]),
+          );
+          const srcE = source ? byId.get(source) : undefined;
+          const tgtE = target ? byId.get(target) : undefined;
+          items.push({
+            id: e.id,
+            type: args.relationshipTypeLocal,
+            source: source
+              ? summarizeEntity(srcE || { id: source }, ctx)
+              : null,
+            target: target
+              ? summarizeEntity(tgtE || { id: target }, ctx)
+              : null,
+          });
+        }
+        return {
+          package: pkg ?? null,
+          relationshipTypeLocal: args.relationshipTypeLocal,
+          items,
+          nextCursor: page.nextCursor,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "batch_get_entities",
+    {
+      description: "Batch-read entities by id (max 200). Read is unrestricted across packages.",
+      inputSchema: z.object({
+        ids: z.array(z.string()).min(1).max(200),
+        includeStatements: z.boolean().optional(),
+        properties: z.array(z.string()).optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "batch_get_entities", async () => {
+        await ctx.ensureSchemaLoaded();
+        const include = ["effectiveClasses"];
+        if (args.includeStatements || args.properties?.length) include.push("statements");
+        const resp = await ctx.kc.batchReadEntities({
+          ids: args.ids,
+          include,
+          properties: args.properties,
+        });
+        return {
+          results: (resp.results || []).map((r) => ({
+            id: r.id,
+            error: r.error,
+            entity: r.entity ? summarizeEntity(r.entity, ctx) : undefined,
+            statements: r.statements?.map((s) => ({
+              id: s.id,
+              property: ctx.schema.propertyLocal(s.property) || s.property,
+              value: s.value,
+              display: valueToDisplay(s.value),
+            })),
+          })),
+        };
+      }),
+  );
+
+  server.registerTool(
+    "inventory_report",
+    {
+      description:
+        "Compact package inventory: facets + optional top labels per classLocal.",
+      inputSchema: z.object({
+        package: z.string().optional(),
+        classLocals: z.array(z.string()).optional(),
+        topPerClass: z.number().int().positive().max(50).optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "inventory_report", async () => {
+        await ctx.ensureSchemaLoaded();
+        const pkg = ctx.resolveReadPackage(args.package);
+        if (!pkg) throw new Error("inventory_report requires package= or workingPackage");
+        const facetsResp = await ctx.kc.listEntityFacets({ package: pkg, groupBy: "instanceOf" });
+        const facets = (facetsResp.facets || []).map((f) => ({
+          classId: f.classId,
+          classLocal: ctx.schema.classLocal(f.classId) || f.classId.split("/").pop() || f.classId,
+          count: f.count,
+        }));
+        const want = args.classLocals?.length ? new Set(args.classLocals) : null;
+        const filtered = want ? facets.filter((f) => want.has(f.classLocal)) : facets;
+        filtered.sort((a, b) => b.count - a.count);
+        const topN = args.topPerClass ?? 5;
+        const samples: Record<string, Array<{ id: string; label: string }>> = {};
+        for (const f of filtered.slice(0, 30)) {
+          if (f.count === 0) continue;
+          try {
+            const page = await ctx.kc.listEntities({
+              package: pkg,
+              kind: "entity",
+              instanceOf: f.classId,
+              includeSubclasses: true,
+              limit: topN,
+            });
+            samples[f.classLocal] = (page.items || []).map((e) => ({
+              id: e.id,
+              label: summarizeEntity(e, ctx).label,
+            }));
+          } catch {
+            samples[f.classLocal] = [];
+          }
+        }
+        return { package: pkg, facets: filtered, samples };
+      }),
+  );
+
+  server.registerTool(
+    "health",
+    {
+      description: "MCP/KC health: reachability, schema loaded, write allowlist, session summary",
+      inputSchema: z.object({}),
+    },
+    async () =>
+      withTool(ctx, "health", async () => {
+        let kcOk = false;
+        let kcError: string | null = null;
+        try {
+          const res = await fetch(`${ctx.config.kcBaseUrl}/healthz`);
+          kcOk = res.ok;
+          if (!res.ok) kcError = `HTTP ${res.status}`;
+        } catch (e) {
+          kcError = e instanceof Error ? e.message : String(e);
+        }
+        let schemaClasses = 0;
+        try {
+          await ctx.ensureSchemaLoaded();
+          schemaClasses = ctx.schema.snapshot.classesByLocal.size;
+        } catch (e) {
+          kcError = kcError || (e instanceof Error ? e.message : String(e));
+        }
+        return {
+          ok: kcOk && schemaClasses > 0,
+          kcBaseUrl: ctx.config.kcBaseUrl,
+          kcOk,
+          kcError,
+          schemaLoaded: schemaClasses > 0,
+          schemaClasses,
+          writePackagesAllowlist: [...ctx.session.writePackagesAllowlist],
+          session: ctx.session.getPublicView(),
+          pid: ctx.pid,
+          startedAt: ctx.startedAt,
+        };
+      }),
+  );
+
+  return server;
 }

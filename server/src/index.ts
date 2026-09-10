@@ -9,6 +9,9 @@ import { McpSessionState } from "./session.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  console.error(
+    `itmap-mcp starting transport=${config.transport} writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"} pid=${process.pid}`,
+  );
 
   if (config.transport === "stdio") {
     const ctx = AppContext.create(config);
@@ -39,7 +42,13 @@ async function startHttp(config: McpServerConfig): Promise<void> {
   };
 
   app.get("/health", (_req, res) => {
-    res.json({ ok: true, transport: "http", orgPackage: config.orgPackage });
+    res.json({
+      ok: true,
+      transport: "http",
+      writePackages: config.writePackages,
+      defaultPackage: config.defaultPackage,
+      pid: process.pid,
+    });
   });
 
   app.all("/mcp", async (req, res) => {
@@ -66,7 +75,8 @@ async function startHttp(config: McpServerConfig): Promise<void> {
       }
 
       const session = new McpSessionState({
-        orgPackage: config.orgPackage,
+        writePackagesAllowlist: config.writePackages,
+        defaultPackage: config.defaultPackage,
         lang: config.lang,
         writeMode: config.writeMode,
         authMode: config.authMode,
@@ -100,7 +110,7 @@ async function startHttp(config: McpServerConfig): Promise<void> {
 
   app.listen(config.httpPort, () => {
     console.error(
-      `itmap-mcp HTTP listening on :${config.httpPort}/mcp (orgPackage=${config.orgPackage})`,
+      `itmap-mcp HTTP listening on :${config.httpPort}/mcp writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"}`,
     );
   });
 }

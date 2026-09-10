@@ -30,7 +30,7 @@ Výsledek:
 | 2 | Rozsah v1 | **C plné** — elementy + vztahy + properties + schema/guidance + card read + **views CRUD** + **Open Exchange** |
 | 3 | Transport | **C** — stdio i HTTP+SSE |
 | 4 | Auth | **C** — service account do KC i forward uživatelského OIDC tokenu (konfigurovatelné) |
-| 5 | Session / package | **A** — jedna MCP session = právě jeden org package (povinný) |
+| 5 | Session / package | **Superseded by ADR** — multipackage; write allowlist + session approve; read unrestricted |
 | 6 | Jazyk | **C** — CS i EN; preferovaný lang v session |
 | 7 | Shared lib + IT Map gating | **A** — součást tohoto zadání: extrakce `archimate-core` + `isAllowed` na IT Map write path |
 
@@ -50,7 +50,7 @@ Další kotvy z diskuse (neměnit bez ADR):
 | 1 | npm package names | **`@itmap/archimate-core`** + **`@itmap/mcp-server`**. Scope `@itmap/` = produkt IT Map (ne generické KC); private workspace packages. Delší `@knowledge-itmap/…` by jen kopírovalo git repo name. |
 | 2 | Elevate flag pro commit v `propose` | **Ano** — `commit_changeset` vyžaduje `confirm_commit: true`. V `writeMode=commit` flag není potřeba. |
 | 3 | OE I/O | XML **string** i **file path** (`path` pod `ITMAP_MCP_FILE_ROOTS`); limit `ITMAP_MCP_OE_MAX_BYTES` |
-| 4 | `configure_session` + package | **orgPackage immutable** po startu — pokus o změnu je rejected |
+| 4 | `configure_session` + package | **Superseded** — viz [`adr-mcp-multipackage-session.md`](./adr-mcp-multipackage-session.md): multipackage session, write allowlist + per-session `approve_write_package` |
 
 ---
 
@@ -93,9 +93,9 @@ MCP clients  ──►  server/ ──/v1──┘
 
 - Spouštění: CLI (`itmap-mcp` / `npm run mcp`) / process vedle SPA.
 - Transports: **stdio** (local Cursor) + **HTTP+SSE** (sdílený server).
-- Session state: `orgPackage` (required, immutable), `lang` (`cs`\|`en`), `writeMode` (`propose`\|`commit`), auth binding, aktivní open ChangeSet id.
+- Session state: `workingPackage`, `writePackagesAllowlist`, `approvedWritePackages`, `lang` (`cs`\|`en`), `writeMode` (`propose`\|`commit`), auth binding, aktivní open ChangeSet id. Read unrestricted; write = allowlist ∩ session approval.
 - Tools volají výhradně `archimate-core` (ne duplicitní HTTP skládání v tool handleru).
-- Docs: [`server/README.md`](../server/README.md).
+- Docs: [`server/README.md`](../server/README.md), ADR multipackage.
 
 ---
 
@@ -106,8 +106,10 @@ MCP clients  ──►  server/ ──/v1──┘
 | Tool / resource | Popis |
 |-----------------|--------|
 | Resource `modeling://primer` (+ `/cs`, `/en`) | Stručný koncept Lite (L0–L4, co patří do modelu, ChangeSet, karty ↔ ArchiMate) — CS i EN |
-| `get_session` / `configure_session` | lang, writeMode (orgPackage **immutable**) |
+| `get_session` / `configure_session` | lang, writeMode, workingPackage (must be approved) |
+| `approve_write_package` / `revoke_write_package` | per-session write approval (`confirm: true`) |
 | `open_changeset` / `commit_changeset` / `cancel_changeset` | v `propose` vyžaduje `confirm_commit: true`; v `commit` bez elevate |
+| `health` | KC reachability, schema, allowlist, session |
 
 ### Schema / guidance
 
@@ -123,9 +125,12 @@ MCP clients  ──►  server/ ──/v1──┘
 
 | Tool | Popis |
 |------|--------|
-| `search_entities` / `list_entities` | vázané na session package |
-| `get_entity` | entity + klíčové statements |
-| `get_neighborhood` | depth 1–2 |
+| `search_entities` / `list_entities` | optional `package` (default workingPackage); typed filters + optional properties |
+| `list_entity_facets` / `inventory_report` | package inventory |
+| `list_relationships` | by type + optional source/target; labels resolved |
+| `batch_get_entities` | batch read (max 200) |
+| `get_entity` | entity + klíčové statements (read any package) |
+| `get_neighborhood` | resolved links by default; `raw: true` for KC statements |
 | `get_card` | card projekce: profil, fields, sloty + sousedé, empty recommended |
 | `validate_entity` | KC validation (pokud endpoint existuje) + methodology findings z empty recommended slots |
 
@@ -217,7 +222,9 @@ Fáze 0–7 + follow-upy jsou v kódu. Live smoke: `npm run mcp:smoke` (vyžaduj
 
 ```text
 ITMAP_KC_BASE_URL=
-ITMAP_MCP_ORG_PACKAGE=          # required default / session (immutable)
+ITMAP_MCP_WRITE_PACKAGES=       # required CSV allowlist for write (e.g. org-ote,org-demo)
+ITMAP_MCP_DEFAULT_PACKAGE=      # optional; must be ⊆ WRITE_PACKAGES
+ITMAP_MCP_ORG_PACKAGE=          # deprecated alias → single-item allowlist + default
 ITMAP_MCP_LANG=cs               # cs | en
 ITMAP_MCP_WRITE_MODE=propose    # propose | commit
 ITMAP_MCP_AUTH_MODE=service     # service | forward
@@ -228,7 +235,7 @@ ITMAP_MCP_OE_MAX_BYTES=5000000
 ITMAP_MCP_FILE_ROOTS=           # optional; colon/comma dirs for OE path tools
 ```
 
-Session může overlay-ovat `lang` a `writeMode`; `orgPackage` je fixed (pravidlo 5A).
+Session overlay: `lang`, `writeMode`, `workingPackage` (among approved). Write requires `approve_write_package` first. See [`adr-mcp-multipackage-session.md`](./adr-mcp-multipackage-session.md).
 
 ---
 
@@ -236,7 +243,7 @@ Session může overlay-ovat `lang` a `writeMode`; `orgPackage` je fixed (pravidl
 
 1. Shared package importují web i server; žádná duplicitní matice/create logika v MCP handlerech.
 2. `isAllowed` blokuje neplatný vztah v IT Map i přes MCP (stejná chybová sémantika).
-3. MCP session vyžaduje org package; zápis mimo něj není podporovaný.
+3. MCP write vyžaduje package ∈ config allowlist **a** session `approve_write_package`; read není omezený na package. Metamodel packages nejsou zapisovatelné.
 4. Režim `propose`: změny v open CS, `commit_changeset` jen s `confirm_commit: true`; režim `commit`: agent může commitnout bez elevate.
 5. `get_card` vrací business labely slotů (CS/EN dle session) a recommended prázdné sloty.
 6. Views: agent vytvoří `DiagramView` + node na element + connection na vztah bez změny architektonických statements elementu.
