@@ -1,4 +1,35 @@
-export { UI_CARDS_PKG } from "./types";
+import {
+  CardsProfileLoader as CoreLoader,
+  CardsService as CoreService,
+  bindCardsProfileLoader,
+  getCardsProfileLoader,
+  resetCardsProfileLoader,
+  resolvePresentationProfile,
+  classLocalFromEffective,
+  classLocalFromStatements,
+  classNeedsMatchProps,
+  interestingKeysForClass,
+  matchKeysForClass,
+  propMapFromStatements,
+  resolveClassLocalFromEmbeds,
+  statementToString,
+  UI_CARDS_PKG,
+  type CardsHubPage,
+  type CardsHubRow,
+  type CardFieldView,
+  type CardNeighbor,
+  type CardSlotView,
+  type CardSystemInfo,
+  type CardViewModel,
+  type PresentationProfileDef,
+  type RelationSlotDef,
+  type SlotDirection,
+  type SlotImportance,
+} from "@itmap/archimate-core";
+import { getKc } from "@/kc/client";
+import { getSchema } from "@/kc/schema";
+
+export { UI_CARDS_PKG };
 export type {
   CardFieldView,
   CardNeighbor,
@@ -9,10 +40,11 @@ export type {
   RelationSlotDef,
   SlotDirection,
   SlotImportance,
-} from "./types";
-export { CardsProfileLoader, getCardsProfileLoader, resetCardsProfileLoader } from "./profileLoader";
-export { resolvePresentationProfile } from "./profileResolver";
+  CardsHubPage,
+  CardsHubRow,
+};
 export {
+  resolvePresentationProfile,
   classLocalFromEffective,
   classLocalFromStatements,
   classNeedsMatchProps,
@@ -21,6 +53,22 @@ export {
   propMapFromStatements,
   resolveClassLocalFromEmbeds,
   statementToString,
-} from "./hubResolve";
-export { CardsService } from "./cardsService";
-export type { CardsHubPage, CardsHubRow } from "./cardsService";
+  getCardsProfileLoader,
+  resetCardsProfileLoader,
+  bindCardsProfileLoader,
+};
+
+export class CardsProfileLoader extends CoreLoader {
+  constructor(kc = getKc(), schema = getSchema()) {
+    super(kc, schema);
+  }
+}
+
+export class CardsService extends CoreService {
+  constructor(kc = getKc(), schema = getSchema(), loader = getCardsProfileLoader()) {
+    super(kc, schema, loader);
+  }
+}
+
+// Bind SPA singleton factory once on module load.
+bindCardsProfileLoader(() => new CardsProfileLoader());

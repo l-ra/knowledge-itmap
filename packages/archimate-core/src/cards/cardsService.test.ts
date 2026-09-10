@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { CardsService } from "./cardsService";
 import type { CardsProfileLoader } from "./profileLoader";
 import type { PresentationProfileDef } from "./types";
-import type { KcClient } from "@/kc/client";
-import type { SchemaResolver, SchemaSnapshot } from "@/kc/schema";
-import type { Entity, ListResponse, Statement } from "@/kc/types";
+import type { KcClient } from "../kcClient";
+import type { SchemaResolver, SchemaSnapshot } from "../schema";
+import type { Entity, ListResponse, Statement } from "../types";
 
 function entity(id: string, label: string, classIri?: string): Entity {
   return {

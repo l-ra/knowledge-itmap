@@ -5,7 +5,16 @@ a navigačním package **archimate-ui-traversal ≥ 1.0.0**.
 Uživatel prochází a edituje model organizace ve sloupcovém browseru (Organization → … → Network / Location).
 
 Specifikace: [`docs/funkcni-specifikace.md`](docs/funkcni-specifikace.md)  
-Open Exchange import/export: [`docs/open-exchange.md`](docs/open-exchange.md)
+Open Exchange import/export: [`docs/open-exchange.md`](docs/open-exchange.md)  
+MCP pro agenty: [`docs/zadani-mcp-archimate.md`](docs/zadani-mcp-archimate.md), spuštění [`server/README.md`](server/README.md)  
+Sdílená doména: `@itmap/archimate-core` · MCP server: `@itmap/mcp-server`
+
+```bash
+npm run mcp:build          # server/dist/index.js (bez tsx)
+npm run mcp:stdio          # node dist, stdio
+npm run mcp:smoke          # live acceptance proti KC
+```
+
 
 ## Požadavky
 

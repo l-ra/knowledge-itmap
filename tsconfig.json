@@ -18,8 +18,10 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@itmap/archimate-core": ["packages/archimate-core/src/index.ts"],
+      "@itmap/archimate-core/*": ["packages/archimate-core/src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "packages/archimate-core/src"]
 }

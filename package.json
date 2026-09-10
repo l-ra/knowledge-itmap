@@ -3,17 +3,28 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "server"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "typecheck:core": "tsc --noEmit -p packages/archimate-core/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "setup:check": "bash scripts/check-kc.sh",
-    "setup:seed": "bash scripts/seed-demo.sh"
+    "setup:seed": "bash scripts/seed-demo.sh",
+    "mcp": "npm run start -w @itmap/mcp-server",
+    "mcp:dev": "npm run dev -w @itmap/mcp-server",
+    "mcp:stdio": "ITMAP_MCP_TRANSPORT=stdio npm run start -w @itmap/mcp-server",
+    "mcp:build": "npm run build -w @itmap/mcp-server",
+    "mcp:smoke": "npm run smoke -w @itmap/mcp-server"
   },
   "dependencies": {
+    "@itmap/archimate-core": "*",
     "@tanstack/react-query": "^5.84.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

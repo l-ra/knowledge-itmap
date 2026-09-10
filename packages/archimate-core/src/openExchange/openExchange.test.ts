@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseOpenExchangeXml, collectXmlIdentifiers } from "./parseXml";
 import { serializeOpenExchangeXml } from "./serializeXml";
 import { findOrphans } from "./reconcile";
-import type { Entity } from "@/kc/types";
+import type { Entity } from "../types";
 
 const SAMPLE = `<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.opengroup.org/xsd/archimate/3.0/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" identifier="id-model1">

@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "src"),
+        "@itmap/archimate-core": path.resolve(__dirname, "packages/archimate-core/src"),
       },
     },
     server: {

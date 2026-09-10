@@ -9,7 +9,7 @@ import {
 } from "./hubResolve";
 import { resolvePresentationProfile } from "./profileResolver";
 import type { PresentationProfileDef } from "./types";
-import type { Entity, Statement } from "@/kc/types";
+import type { Entity, Statement } from "../types";
 
 function profile(
   partial: Partial<PresentationProfileDef> & Pick<PresentationProfileDef, "profileCode" | "archimateElementType">,

@@ -1,34 +1,15 @@
-import type { Entity, PropertyEntity } from "./types";
+/**
+ * Browser IndexedDB persistence for schema snapshots.
+ * Serialize/hydrate live in @itmap/archimate-core.
+ */
+import type { SchemaCachePayload, SchemaCachePort } from "@itmap/archimate-core";
 
 const DB_NAME = "itmap-schema";
 const DB_VERSION = 1;
 const STORE = "cache";
 const CACHE_KEY = "snapshot-v1";
 
-export interface AllowedRelCacheRow {
-  typeLocal: string;
-  typeIri: string;
-  sourceLocal: string;
-  sourceIri: string;
-  targetLocal: string;
-  targetIri: string;
-}
-
-/** Serializable SchemaSnapshot for IndexedDB. */
-export interface SchemaCachePayload {
-  version: 1;
-  fingerprint: string;
-  instanceOfProperty: string;
-  classesByLocal: Array<[string, Entity]>;
-  propertiesByLocal: Array<[string, PropertyEntity]>;
-  classIriToLocal: Array<[string, string]>;
-  propertyIriToLocal: Array<[string, string]>;
-  relSource: string;
-  relTarget: string;
-  allowed: AllowedRelCacheRow[];
-  enums: Array<[string, string[]]>;
-  loadedAt: number;
-}
+export type { SchemaCachePayload };
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -93,5 +74,18 @@ export async function clearSchemaCache(): Promise<void> {
     });
   } catch {
     /* ignore */
+  }
+}
+
+/** SchemaCachePort backed by IndexedDB. */
+export class IndexedDbSchemaCache implements SchemaCachePort {
+  read(): Promise<SchemaCachePayload | null> {
+    return readSchemaCache();
+  }
+  write(payload: SchemaCachePayload): Promise<void> {
+    return writeSchemaCache(payload);
+  }
+  clear(): Promise<void> {
+    return clearSchemaCache();
   }
 }

@@ -1,0 +1,111 @@
+import { randomUUID } from "node:crypto";
+import express from "express";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { loadConfig, type McpServerConfig } from "./config.js";
+import { AppContext } from "./context.js";
+import { createMcpServer } from "./createMcpServer.js";
+import { McpSessionState } from "./session.js";
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+
+  if (config.transport === "stdio") {
+    const ctx = AppContext.create(config);
+    const server = createMcpServer(ctx);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    return;
+  }
+
+  await startHttp(config);
+}
+
+async function startHttp(config: McpServerConfig): Promise<void> {
+  const app = express();
+  app.use(express.json({ limit: Math.max(config.oeMaxBytes + 1_000_000, 6_000_000) }));
+
+  type HttpSession = {
+    ctx: AppContext;
+    transport: StreamableHTTPServerTransport;
+  };
+  const sessions = new Map<string, HttpSession>();
+
+  const extractBearer = (req: express.Request): string | null => {
+    const h = req.header("authorization") || req.header("Authorization");
+    if (!h) return null;
+    const m = /^Bearer\s+(.+)$/i.exec(h.trim());
+    return m?.[1]?.trim() || null;
+  };
+
+  app.get("/health", (_req, res) => {
+    res.json({ ok: true, transport: "http", orgPackage: config.orgPackage });
+  });
+
+  app.all("/mcp", async (req, res) => {
+    try {
+      const sessionId = req.header("mcp-session-id") || undefined;
+      let entry = sessionId ? sessions.get(sessionId) : undefined;
+
+      if (entry) {
+        if (config.authMode === "forward") {
+          const token = extractBearer(req);
+          if (token) {
+            entry.ctx.session.setForwardedToken(token);
+            entry.ctx.syncAuth();
+          }
+        }
+        await entry.transport.handleRequest(req, res, req.body);
+        return;
+      }
+
+      // New session — typically initialize (POST without session id)
+      if (sessionId) {
+        res.status(404).json({ error: "Unknown MCP session" });
+        return;
+      }
+
+      const session = new McpSessionState({
+        orgPackage: config.orgPackage,
+        lang: config.lang,
+        writeMode: config.writeMode,
+        authMode: config.authMode,
+        forwardedToken: extractBearer(req),
+      });
+      const ctx = AppContext.create(config, session);
+      const server = createMcpServer(ctx);
+
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          sessions.set(id, { ctx, transport });
+        },
+      });
+      transport.onclose = () => {
+        const id = transport.sessionId;
+        if (id) sessions.delete(id);
+      };
+
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (e) {
+      console.error("MCP HTTP error:", e);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  });
+
+  app.listen(config.httpPort, () => {
+    console.error(
+      `itmap-mcp HTTP listening on :${config.httpPort}/mcp (orgPackage=${config.orgPackage})`,
+    );
+  });
+}
+
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+});
