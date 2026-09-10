@@ -9,9 +9,11 @@ Open Exchange import/export: [`docs/open-exchange.md`](docs/open-exchange.md)
 MCP pro agenty: [`docs/zadani-mcp-archimate.md`](docs/zadani-mcp-archimate.md), spuštění [`server/README.md`](server/README.md)  
 Sdílená doména: `@itmap/archimate-core` · MCP server: `@itmap/mcp-server`
 
+Lokální Cursor: projekt má [`.cursor/mcp.json`](.cursor/mcp.json) (server `itmap`). Secrets v **gitignored** [`.env.mcp`](.env.mcp). Po změně kódu: `npm run mcp:build`, pak v Cursoru restart MCP.
+
 ```bash
 npm run mcp:build          # server/dist/index.js (bez tsx)
-npm run mcp:stdio          # node dist, stdio
+npm run mcp:stdio          # ruční test stdio
 npm run mcp:smoke          # live acceptance proti KC
 ```
 

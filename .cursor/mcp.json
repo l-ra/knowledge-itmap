@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "itmap": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/home/rasekl/src/knowledge-itmap/server/dist/index.js"],
+      "envFile": "/home/rasekl/src/knowledge-itmap/.env.mcp",
+      "env": {
+        "ITMAP_MCP_TRANSPORT": "stdio",
+        "ITMAP_MCP_ORG_PACKAGE": "org-ote"
+      }
+    }
+  }
+}

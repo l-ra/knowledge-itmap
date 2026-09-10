@@ -1,8 +1,9 @@
+.env
+.env.local
+.env.mcp
 node_modules/
 dist/
 .tmp/
 .DS_Store
-.env
-.env.local
 *.log
 .vite/
