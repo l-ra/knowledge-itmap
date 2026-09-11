@@ -1,7 +1,7 @@
 # Implementační plán: režim Karty (v1)
 
-**Stav:** fáze A–D implementovány (v1 read-only Karty)  
-**Datum:** 2026-09-04  
+**Stav:** fáze A–D implementovány; workspace UI (sloupce + pinboard + inplace, soft A) — viz [workspace-ui.md](./workspace-ui.md)  
+**Datum:** 2026-09-11  
 **Vychází z:** [rozhodnuti-v1.md](./rozhodnuti-v1.md), [koncept-karet-komponent.md](./koncept-karet-komponent.md)  
 **Prerekvizita:** archimate-lite **3.1.0** — **splněna** v `knowledge-models` (bundle + demo + UI traversal seed)
 
@@ -183,7 +183,7 @@ Seed-demo / check-kc: importovat i `archimate-ui-cards` 1.0.0.
 
 ---
 
-### Fáze D — UI read-only `/cards`
+### Fáze D — UI `/cards` (+ workspace)
 
 **Repo:** `knowledge-itmap`
 
@@ -192,9 +192,9 @@ Seed-demo / check-kc: importovat i `archimate-ui-cards` 1.0.0.
 | Route + menu | `App.tsx`: **Karty** → `/cards` |
 | Hub | Seznam/hledání elementů org package; otevření karty |
 | Card page | `/cards/:entityId` — header, fields, sloty, empty recommended, expert toggle |
-| Navigace | Klik na souseda → push historie; tlačítko Zpět |
-| Vztah | Volitelný tenký read-only panel/detail vztahu (bez editace) |
-| URL stav | Jednoduchý (entity id + volitelně history stack v session/query) — **ne** reuse `browserUrlState` |
+| Workspace | Sloupce úrovní + pinboard ve sloupci + inplace ve slotu; soft větvení (A) — viz [workspace-ui.md](./workspace-ui.md) |
+| Navigace | `→` / klik = další úroveň; `▢` = inplace; ✕ zavře kartu; Hub |
+| URL stav | `location.state.columns: CardRef[][]` + focus v URL — **ne** reuse `browserUrlState` / trail |
 
 UI styl: držet se existujícího shellu IT Map (topbar, typography), ne nový marketing layout.
 
@@ -202,11 +202,12 @@ UI styl: držet se existujícího shellu IT Map (topbar, typography), ne nový m
 
 1. Z menu Karty otevřu hub, najdu Odbor Compliance → karta Oddělení.  
 2. Vidím recommended sloty (i prázdné) a existující vazby.  
-3. Proklik na osobu/roli otevře jejich kartu; Zpět funguje.  
-4. ApplicationComponent bez specifického kind → profil Aplikace.  
-5. Neznámá kombinace → raw ArchiMate karta.  
-6. Expert toggle ukáže další příchozí/odchozí AML hrany mimo sloty.  
-7. Žádný import z `traversal.ts` / `navigationProfile*` v cards modulech (grep/CI sanity).
+3. Otevření dvou sousedů z jedné karty: oba zůstanou v úrovni 1 (soft branch).  
+4. Inplace otevře kartu ve slotu; ✕ inplace ji skryje bez změny sloupců.  
+5. ApplicationComponent bez specifického kind → profil Aplikace.  
+6. Neznámá kombinace → raw ArchiMate karta.  
+7. Expert toggle ukáže další příchozí/odchozí AML hrany mimo sloty.  
+8. Žádný import z `traversal.ts` / `navigationProfile*` v cards modulech (grep/CI sanity).
 
 ---
 

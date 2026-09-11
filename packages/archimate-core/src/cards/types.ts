@@ -44,6 +44,8 @@ export interface CardNeighbor {
   profileLabelCs?: string;
   relationshipId: string;
   relationshipType: string;
+  /** Perspective of the current card: outgoing = forward, incoming = inverse. */
+  direction?: SlotDirection;
 }
 
 export interface CardSlotView {

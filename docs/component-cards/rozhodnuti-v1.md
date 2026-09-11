@@ -134,13 +134,19 @@ Při seedu `archimate-ui-cards` tyto sloty zapsat a ověřit proti `AllowedRelat
 
 ---
 
-## 5. UX v1 (read-only)
+## 5. UX v1 (Karty workspace)
 
 1. Menu položka **Karty** → route `/cards`  
 2. Hub: hledání / seznam entit org package → otevření karty  
 3. Karta: header (profil label + AML typ), fields, sloty (filled + empty recommended), toggle expert  
-4. Klik na souseda → navigace na jeho kartu + historie zpět  
-5. Tenký generický detail vztahu (bez editace)
+4. Workspace (záložky + sloupce):  
+   - nezavíratelný hub tab **Karty**; výběr entity otevře workspace záložku  
+   - horizontální **sloupce = úrovně** vazeb, ve sloupci **pinboard**, soft větvení  
+   - u vazby **inplace** nebo **další úroveň**; ↗ otevře entitu jako novou záložku  
+   - zavírací ✕, skrytí sekcí do spodního tray (prázdný popis default skrytý)  
+5. Detail: [workspace-ui.md](./workspace-ui.md)
+
+**Odloženo z původního v1 UX:** tenký generický detail vztahu jako samostatná obrazovka.
 
 ---
 

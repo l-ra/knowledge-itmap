@@ -91,7 +91,7 @@ Org package: vytvoř / vyber v **Packages** (`org-demo`).
 | Oblast | Funkce |
 |--------|--------|
 | Column browser | Traversal templates: Business exploration, Application impact, Infrastructure |
-| Karty | Read-only procházení po PresentationProfile kartách (`/cards`) |
+| Karty | Tab workspace + deeplink/bookmarky sestav (`/cards`) |
 | Focus path | Breadcrumb grafem |
 | Inspector Basic | Název, popis, actorKind, organizationScope |
 | Inspector Extended | Statements, edit property, open-world nová property |

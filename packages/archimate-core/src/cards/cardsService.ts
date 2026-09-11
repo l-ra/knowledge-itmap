@@ -526,6 +526,7 @@ export class CardsService {
       neighborId: string;
       relId: string;
       relationshipType: string;
+      direction: "outgoing" | "incoming";
     };
     const pending: Pending[] = [];
     const seen = new Set<string>();
@@ -551,7 +552,12 @@ export class CardsService {
       const neighborId =
         role.as === "source" ? tgt.value.entityId : src.value.entityId;
       if (neighborId === entityId) continue;
-      pending.push({ neighborId, relId, relationshipType: relClassLocal });
+      pending.push({
+        neighborId,
+        relId,
+        relationshipType: relClassLocal,
+        direction: role.as === "source" ? "outgoing" : "incoming",
+      });
     }
 
     const neighborIds = [...new Set(pending.map((p) => p.neighborId))];
@@ -584,6 +590,7 @@ export class CardsService {
         profileLabelCs: neighborProfile?.labelCs,
         relationshipId: p.relId,
         relationshipType: p.relationshipType,
+        direction: p.direction,
       });
     }
 
