@@ -3,7 +3,8 @@
 **Stav:** uzavřeno; prerekvizita AML 3.1.0 splněna  
 **Diskuse:** [koncept-karet-komponent.md](./koncept-karet-komponent.md)  
 **Prerekvizita:** [zadani-archimate-lite-3.1.0.md](./zadani-archimate-lite-3.1.0.md) (splněno v knowledge-models)  
-**Implementace:** [implementacni-plan-karty-v1.md](./implementacni-plan-karty-v1.md) — ke schválení
+**Implementace:** [implementacni-plan-karty-v1.md](./implementacni-plan-karty-v1.md)  
+**Create vazeb:** [create-vazby-karty.md](./create-vazby-karty.md)
 
 ---
 
@@ -18,7 +19,8 @@
 | V1 entity | `PresentationProfile` + `RelationSlot` (sekce layoutu v profilu) |
 | Hrany | Jen jednohranové sloty; path patterns / ModelingConvention odloženy |
 | Prázdné sloty | Default: existující + recommended; expert až toggle |
-| Validace hran | Slot ≠ matice; pozdější create jen přes `AllowedRelationship` |
+| Validace hran | Slot ≠ matice; create jen přes `AllowedRelationship` |
+| Create vazeb (slice) | Ze slotu link+create; expert = plná matice; viz [create-vazby-karty.md](./create-vazby-karty.md) |
 | Labely | Properties/enumy ze schema; v profilu label profilu + labely slotů |
 | Raw escape | Ano až u create slice; **bez miningu** nových profilů z usage |
 | AML taxonomie | `actorKind` + `organizationScope` v archimate-lite **3.1.0** (viz zadání) |
@@ -37,7 +39,8 @@
 
 ## 2. Non-goals v1
 
-- Create / edit na kartě a ve slotech  
+- Hub create elementu bez vazby (create souseda ve slotu/expert je v [create-vazby-karty.md](./create-vazby-karty.md))  
+- Edit properties vztahu po založení (jen defaults při create)  
 - `CardDefinition` jako samostatná entita  
 - `ModelingConvention` / multi-hop path edit  
 - `QualityRules` systém  

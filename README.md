@@ -23,7 +23,7 @@ npm run mcp:smoke          # live acceptance proti KC
 - Node.js 20+
 - Běžící Knowledge Core na `http://localhost:8080` (nebo `KC_PROXY_TARGET`)
 - Sibling checkout [`knowledge-models`](../knowledge-models) s bundley
-- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` **3.2.1** + `archimate-ui-traversal` 1.0.0 + `archimate-ui-cards` 1.0.0
+- Naimportované packages: `kc-base` 1.1.0 + `archimate-lite` **3.2.1** + `archimate-ui-traversal` 1.0.0 + `archimate-ui-cards` **1.1.1**
 
 ## Lokální spuštění s Knowledge Core (DEV)
 
@@ -60,9 +60,9 @@ npm run setup:seed
 1. `kc-base-1.1.0.bundle.json`
 2. `archimate-lite-3.2.1.bundle.json`
 3. `archimate-ui-traversal-1.0.0.bundle.json`
-4. `archimate-ui-cards-1.0.0.bundle.json`
+4. `archimate-ui-cards-1.1.1.bundle.json`
 5. volitelně demo loader `archimate-lite-demo`
-6. package `org-demo` (continuous, závislosti `archimate-lite ^3.1.0` + `archimate-ui-traversal ^1.0.0` + `archimate-ui-cards ^1.0.0`)
+6. package `org-demo` (continuous, závislosti `archimate-lite ^3.1.0` + `archimate-ui-traversal ^1.0.0` + `archimate-ui-cards ^1.1.0`)
 
 Alternativa ručně (KC UI → Packages → Import release bundle) ve stejném pořadí.
 

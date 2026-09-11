@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Import kc-base + archimate-lite 3.1.0 + archimate-ui-traversal 1.0.0
-# + archimate-ui-cards 1.0.0 and optional demo seed into local Knowledge Core.
+# Import kc-base + archimate-lite + archimate-ui-traversal
+# + archimate-ui-cards 1.1.1 and optional demo seed into local Knowledge Core.
 # Bundles live in sibling repo knowledge-models (not knowledge-core).
 set -euo pipefail
 
@@ -37,9 +37,9 @@ echo "Importing archimate-ui-traversal 1.0.0 …"
 curl -sf "${auth[@]}" --data-binary @"$ui_trav" "$KC_URL/v1/releases/import" | head -c 200
 echo ""
 
-ui_cards="$MODELS_ROOT/archimate-ui-cards/releases/archimate-ui-cards-1.0.0.bundle.json"
+ui_cards="$MODELS_ROOT/archimate-ui-cards/releases/archimate-ui-cards-1.1.1.bundle.json"
 if [[ -f "$ui_cards" ]]; then
-  echo "Importing archimate-ui-cards 1.0.0 …"
+  echo "Importing archimate-ui-cards 1.1.1 …"
   curl -sf "${auth[@]}" --data-binary @"$ui_cards" "$KC_URL/v1/releases/import" | head -c 200
   echo ""
 else
@@ -76,7 +76,7 @@ curl -sf "${auth[@]}" -H "Idempotency-Key: itmap-org-demo" \
     "dependencies":[
       {"dependsOnCode":"archimate-lite","versionRange":"^3.1.0"},
       {"dependsOnCode":"archimate-ui-traversal","versionRange":"^1.0.0"},
-      {"dependsOnCode":"archimate-ui-cards","versionRange":"^1.0.0"}
+      {"dependsOnCode":"archimate-ui-cards","versionRange":"^1.1.0"}
     ]
   }' "$KC_URL/v1/packages" >/dev/null 2>&1 || true
 

@@ -68,6 +68,26 @@ export {
 } from "./cardProfileService";
 export type { ProfileDraft, ProfileSlotDraft } from "./cardProfileService";
 
+export {
+  resolveSlotEndpoints,
+  listAllowedForSubject,
+  pickCreateClass,
+  modelActionForEdge,
+  addSlotNeighborLink,
+  addSlotNeighborCreate,
+  addExpertNeighborLink,
+  addExpertNeighborCreate,
+} from "@itmap/archimate-core";
+export type {
+  ResolvedEndpoints,
+  AllowedEdgeOption,
+  ModelRelDirection,
+  SlotNeighborLinkInput,
+  SlotNeighborCreateInput,
+  ExpertNeighborLinkInput,
+  ExpertNeighborCreateInput,
+} from "@itmap/archimate-core";
+
 export class CardsProfileLoader extends CoreLoader {
   constructor(kc = getKc(), schema = getSchema()) {
     super(kc, schema);

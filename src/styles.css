@@ -2118,6 +2118,19 @@ a {
   margin: 0;
 }
 
+.element-card-section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.slot-add-dialog .slot-add-edge-select {
+  width: 100%;
+  min-height: 8rem;
+  font-family: inherit;
+}
+
 .element-card-section-hide {
   position: relative;
   flex: 0 0 auto;

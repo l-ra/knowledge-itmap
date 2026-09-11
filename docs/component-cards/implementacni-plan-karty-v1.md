@@ -213,7 +213,20 @@ UI styl: držet se existujícího shellu IT Map (topbar, typography), ne nový m
 
 ### Fáze E — mimo tento plán (později)
 
-Create hub, edit fields/slotů, raw ArchiMate escape, org sada profilů, ModelingConvention („běží na“), QualityRules, mining.
+Create hub (element bez vazby), edit detailu vztahu, raw ArchiMate escape + mining, org sada profilů, ModelingConvention („běží na“), QualityRules.
+
+### Fáze F — Create vazeb ze slotů / expert
+
+**Zadání:** [create-vazby-karty.md](./create-vazby-karty.md)
+
+| Úkol | Detail |
+|------|--------|
+| Domain | `slotWrite.ts` — resolve endpoints, listAllowedForSubject, addSlotNeighbor / addExpertRelationship |
+| Models | Volitelné `relationshipDefaults` na RelationSlot + seed Association/reportsTo |
+| UI | `SlotAddDialog` + CTA ve slotech a expert sekci; reload karty |
+| Validace | Vždy `assertAllowed`; duplikát blokovat |
+
+**Akceptace:** viz create-vazby-karty.md § Akceptace.
 
 ---
 

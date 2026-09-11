@@ -21,6 +21,8 @@ export type ProfileSlotDraft = {
   targetProfileCodes: string;
   importance: SlotImportance;
   sortOrder: number;
+  /** JSON object string for relationshipDefaults (optional). */
+  relationshipDefaultsJson: string;
 };
 
 export type ProfileDraft = {
@@ -139,6 +141,7 @@ export function emptySlotDraft(): ProfileSlotDraft {
     targetProfileCodes: "",
     importance: "recommended",
     sortOrder: 1,
+    relationshipDefaultsJson: "",
   };
 }
 
@@ -153,6 +156,9 @@ function slotToDraft(s: RelationSlotDef): ProfileSlotDraft {
     targetProfileCodes: s.targetProfileCodes.join(", "),
     importance: s.importance,
     sortOrder: s.sortOrder,
+    relationshipDefaultsJson: s.relationshipDefaults
+      ? JSON.stringify(s.relationshipDefaults)
+      : "",
   };
 }
 
@@ -337,6 +343,11 @@ export class CardProfileService {
         .join(","),
     );
     await this.setInteger(packageCode, slotId, "sortOrder", slot.sortOrder);
+    const defaultsRaw = slot.relationshipDefaultsJson.trim();
+    if (defaultsRaw) {
+      parseMatchJson(defaultsRaw); // validate shape
+      await this.setString(packageCode, slotId, "relationshipDefaults", defaultsRaw);
+    }
     return slotId;
   }
 

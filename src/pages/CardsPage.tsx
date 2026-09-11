@@ -8,8 +8,17 @@ import {
   normalizeLangMap,
   preferredDescription,
 } from "@/components/DescriptionEditor";
-import { CardsService } from "@/domain/cards";
-import type { CardSystemInfo, CardViewModel, CardsHubRow } from "@/domain/cards";
+import { SlotAddDialog, type SlotAddSubmit } from "@/components/SlotAddDialog";
+import {
+  CardsService,
+  addExpertNeighborCreate,
+  addExpertNeighborLink,
+  addSlotNeighborCreate,
+  addSlotNeighborLink,
+  getCardsProfileLoader,
+  listAllowedForSubject,
+} from "@/domain/cards";
+import type { CardSystemInfo, CardViewModel, CardsHubRow, RelationSlotDef } from "@/domain/cards";
 import {
   buildShellShareUrl,
   buildTabShareUrl,
@@ -80,7 +89,7 @@ function defaultHiddenSections(
       hidden.add(`slot:${sv.slot.id}`);
     }
   }
-  if (card.expertNeighbors.length > 0) hidden.add("expert");
+  hidden.add("expert");
   return hidden;
 }
 
@@ -89,7 +98,7 @@ function allHideableSections(card: CardViewModel): SectionKey[] {
   if (card.fields.length > 0) keys.push("fields");
   keys.push("props");
   for (const sv of card.slots) keys.push(`slot:${sv.slot.id}`);
-  if (card.expertNeighbors.length > 0) keys.push("expert");
+  keys.push("expert");
   return keys;
 }
 
@@ -1550,6 +1559,9 @@ function CardPanel({
   const [reloadToken, setReloadToken] = useState(0);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState<Record<string, string>>(() => descriptionsDraftFrom());
+  const [addTarget, setAddTarget] = useState<
+    null | { kind: "slot"; slot: RelationSlotDef } | { kind: "expert" }
+  >(null);
   const systemMenuRef = useRef<HTMLDivElement>(null);
   const defaultsForEntity = useRef<string | null>(null);
   const lastHideAllToken = useRef(0);
@@ -1668,6 +1680,90 @@ function CardPanel({
       service.searchPropertyTargets(orgPackage, rangeClassLocals, query),
     [service, orgPackage],
   );
+
+  const searchSlotCandidates = useCallback(
+    (query: string, classLocals: string[]) =>
+      service.searchPropertyTargets(orgPackage, classLocals, query),
+    [service, orgPackage],
+  );
+
+  const allowedEdges = useMemo(
+    () => (card ? listAllowedForSubject(schema, card.classLocal) : []),
+    [card, schema],
+  );
+
+  async function resolveElementDefaults(
+    profileCodes: string[] | undefined,
+  ): Promise<Record<string, string> | undefined> {
+    if (!profileCodes || profileCodes.length !== 1) return undefined;
+    const profiles = await getCardsProfileLoader().loadAllProfiles(false, orgPackage);
+    const p = profiles.find((x) => x.profileCode === profileCodes[0]);
+    return p?.matchProperties && Object.keys(p.matchProperties).length
+      ? p.matchProperties
+      : undefined;
+  }
+
+  async function handleSlotAddSubmit(payload: SlotAddSubmit) {
+    if (!card || !addTarget) return;
+    if (addTarget.kind === "slot") {
+      const slot = addTarget.slot;
+      if (payload.mode === "link") {
+        const result = await addSlotNeighborLink(model, {
+          packageCode: orgPackage,
+          subjectId: entityId,
+          subjectClassLocal: card.classLocal,
+          slot,
+          neighborId: payload.neighborId,
+          relExtras: payload.relExtras,
+        });
+        pushChangeSet(result.changeSet);
+      } else {
+        const elementDefaults = await resolveElementDefaults(slot.targetProfileCodes);
+        const result = await addSlotNeighborCreate(model, {
+          packageCode: orgPackage,
+          subjectId: entityId,
+          subjectClassLocal: card.classLocal,
+          slot,
+          name: payload.name,
+          descriptions: payload.descriptions,
+          createClassLocal: payload.createClassLocal,
+          elementDefaults,
+          relExtras: payload.relExtras,
+        });
+        pushChangeSet(result.changeSet);
+      }
+    } else {
+      const edge = payload.edge;
+      if (!edge) throw new Error("Chybí vybraný typ vazby.");
+      if (payload.mode === "link") {
+        const result = await addExpertNeighborLink(model, {
+          packageCode: orgPackage,
+          subjectId: entityId,
+          subjectClassLocal: card.classLocal,
+          typeLocal: edge.typeLocal,
+          direction: edge.direction,
+          otherClassLocal: edge.otherClassLocal,
+          neighborId: payload.neighborId,
+          relExtras: payload.relExtras,
+        });
+        pushChangeSet(result.changeSet);
+      } else {
+        const result = await addExpertNeighborCreate(model, {
+          packageCode: orgPackage,
+          subjectId: entityId,
+          subjectClassLocal: card.classLocal,
+          typeLocal: edge.typeLocal,
+          direction: edge.direction,
+          otherClassLocal: edge.otherClassLocal,
+          name: payload.name,
+          descriptions: payload.descriptions,
+          relExtras: payload.relExtras,
+        });
+        pushChangeSet(result.changeSet);
+      }
+    }
+    setReloadToken((t) => t + 1);
+  }
 
   function hideSection(key: SectionKey) {
     setHiddenSections((prev) => {
@@ -2119,10 +2215,20 @@ function CardPanel({
                       <span className="cards-empty-hint"> — zatím neuvedeno</span>
                     )}
                   </h3>
-                  <SectionHideButton
-                    label={`Skrýt: ${sv.slot.labelCs}`}
-                    onClick={() => hideSection(slotKey)}
-                  />
+                  <div className="element-card-section-actions">
+                    <button
+                      type="button"
+                      className="toolbar-btn"
+                      onClick={() => setAddTarget({ kind: "slot", slot: sv.slot })}
+                      title={`Přidat vazbu: ${sv.slot.labelCs}`}
+                    >
+                      + přidat
+                    </button>
+                    <SectionHideButton
+                      label={`Skrýt: ${sv.slot.labelCs}`}
+                      onClick={() => hideSection(slotKey)}
+                    />
+                  </div>
                 </div>
                 {sv.neighbors.length > 0 ? (
                   renderNeighborList(sv.neighbors, sv.slot.id, sv.slot.labelCs)
@@ -2135,16 +2241,34 @@ function CardPanel({
             );
           })}
 
-          {card.expertNeighbors.length > 0 && !hiddenSections.has("expert") && (
+          {!hiddenSections.has("expert") && (
             <section className="element-card-section">
               <div className="element-card-section-head">
                 <h3>Další možné vazby</h3>
-                <SectionHideButton
-                  label="Skrýt další vazby"
-                  onClick={() => hideSection("expert")}
-                />
+                <div className="element-card-section-actions">
+                  <button
+                    type="button"
+                    className="toolbar-btn"
+                    onClick={() => setAddTarget({ kind: "expert" })}
+                    title="Přidat ArchiMate vazbu dle matice"
+                    disabled={allowedEdges.length === 0}
+                  >
+                    + přidat vazbu
+                  </button>
+                  <SectionHideButton
+                    label="Skrýt další vazby"
+                    onClick={() => hideSection("expert")}
+                  />
+                </div>
               </div>
-              {renderNeighborList(card.expertNeighbors, undefined, "Další vazby", true)}
+              {card.expertNeighbors.length > 0 ? (
+                renderNeighborList(card.expertNeighbors, undefined, "Další vazby", true)
+              ) : (
+                <p className="empty" style={{ textAlign: "left" }}>
+                  Žádné další vazby mimo sloty. Použijte „+ přidat vazbu“ pro typ z matice
+                  AllowedRelationship.
+                </p>
+              )}
             </section>
           )}
 
@@ -2212,6 +2336,34 @@ function CardPanel({
             </button>
           </div>
         </article>
+      )}
+
+      {addTarget && card && addTarget.kind === "slot" && (
+        <SlotAddDialog
+          kind="slot"
+          slot={addTarget.slot}
+          subjectLabel={card.entityLabel}
+          subjectClassLocal={card.classLocal}
+          linkedEntityIds={
+            card.slots.find((s) => s.slot.id === addTarget.slot.id)?.neighbors.map((n) => n.entityId) ||
+            []
+          }
+          onSearch={searchSlotCandidates}
+          onSubmit={handleSlotAddSubmit}
+          onClose={() => setAddTarget(null)}
+        />
+      )}
+      {addTarget && card && addTarget.kind === "expert" && (
+        <SlotAddDialog
+          kind="expert"
+          allowedEdges={allowedEdges}
+          subjectLabel={card.entityLabel}
+          subjectClassLocal={card.classLocal}
+          linkedEntityIds={card.expertNeighbors.map((n) => n.entityId)}
+          onSearch={searchSlotCandidates}
+          onSubmit={handleSlotAddSubmit}
+          onClose={() => setAddTarget(null)}
+        />
       )}
     </div>
   );

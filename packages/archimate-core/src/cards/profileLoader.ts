@@ -226,6 +226,10 @@ export class CardsProfileLoader {
       targetProfileCodes: parseCsv(stringVal(byProp.get("targetProfileCodes")?.[0]?.value)),
       importance,
       sortOrder: intVal(byProp.get("sortOrder")?.[0]?.value) ?? 0,
+      relationshipDefaults: (() => {
+        const parsed = parseJsonRecord(stringVal(byProp.get("relationshipDefaults")?.[0]?.value));
+        return Object.keys(parsed).length ? parsed : undefined;
+      })(),
     };
   }
 

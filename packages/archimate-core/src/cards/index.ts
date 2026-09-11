@@ -29,3 +29,22 @@ export {
 } from "./hubResolve";
 export { CardsService } from "./cardsService";
 export type { CardsHubPage, CardsHubRow } from "./cardsService";
+export {
+  resolveSlotEndpoints,
+  listAllowedForSubject,
+  pickCreateClass,
+  modelActionForEdge,
+  addSlotNeighborLink,
+  addSlotNeighborCreate,
+  addExpertNeighborLink,
+  addExpertNeighborCreate,
+} from "./slotWrite";
+export type {
+  ResolvedEndpoints,
+  AllowedEdgeOption,
+  ModelRelDirection,
+  SlotNeighborLinkInput,
+  SlotNeighborCreateInput,
+  ExpertNeighborLinkInput,
+  ExpertNeighborCreateInput,
+} from "./slotWrite";

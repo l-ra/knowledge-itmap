@@ -84,6 +84,7 @@ Každé inplace zanoření spouští vlastní `loadCard` (síť + DOM).
 - Chipy s **0 položkami** jsou default schované za **…** na konci seznamu chipů (kliknutím se rozbalí).
 - Ikona oka na konci tray: skrýt/zobrazit vše.
 - Karta se vždy načítá s expert daty; viditelnost řídí UI skrytí.
+- Expert sekce je vždy v tray (i při 0 expert hranách) — umožňuje **+ přidat vazbu** z matice; viz [create-vazby-karty.md](./create-vazby-karty.md).
 
 ## Deeplink a bookmarky
 

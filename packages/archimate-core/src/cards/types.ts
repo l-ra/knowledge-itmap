@@ -16,6 +16,8 @@ export interface RelationSlotDef {
   targetProfileCodes: string[];
   importance: SlotImportance;
   sortOrder: number;
+  /** Default properties applied to the relationship on create (e.g. associationKind). */
+  relationshipDefaults?: Record<string, string>;
 }
 
 export interface PresentationProfileDef {
