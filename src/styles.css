@@ -1020,6 +1020,7 @@ a {
 .nav-links {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
 }
 
 .nav-links a {
@@ -1035,9 +1036,109 @@ a {
   background: var(--bg-hover);
 }
 
+.nav-dropdown {
+  position: relative;
+}
+
+.nav-dropdown-trigger {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
+}
+
+.nav-dropdown.active .nav-dropdown-trigger,
+.nav-dropdown:hover .nav-dropdown-trigger,
+.nav-dropdown:focus-within .nav-dropdown-trigger {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 12rem;
+  margin-top: 0.15rem;
+  padding: 0.35rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 40;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown:focus-within .nav-dropdown-menu {
+  display: flex;
+}
+
+.nav-dropdown-menu a {
+  display: block;
+  white-space: nowrap;
+}
+
 .mono {
   font-family: var(--mono);
   font-size: 0.8rem;
+}
+
+/* Card profiles editor */
+.card-profiles-page .muted {
+  color: var(--text-muted);
+  margin-top: 0;
+}
+
+.card-profiles-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .card-profiles-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card-profiles-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.card-profiles-list-head h3 {
+  margin: 0;
+}
+
+.profile-definition {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.slot-editor {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
 }
 
 /* Navigation config page */

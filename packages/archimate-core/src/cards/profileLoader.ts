@@ -49,8 +49,21 @@ function parseCsv(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function mergeProfilesByCode(
+  system: PresentationProfileDef[],
+  org: PresentationProfileDef[],
+): PresentationProfileDef[] {
+  const byCode = new Map<string, PresentationProfileDef>();
+  for (const p of system) byCode.set(p.profileCode, p);
+  for (const p of org) byCode.set(p.profileCode, p);
+  return [...byCode.values()].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.profileCode.localeCompare(b.profileCode),
+  );
+}
+
 /**
- * Loads PresentationProfile + RelationSlot from archimate-ui-cards.
+ * Loads PresentationProfile + RelationSlot from archimate-ui-cards
+ * (and optionally org package overrides / additions).
  * Resolves property IRIs from that package (does not share lookup with ui-traversal).
  */
 export class CardsProfileLoader {
@@ -58,6 +71,7 @@ export class CardsProfileLoader {
   private classIdCache = new Map<string, string>();
   private stmtCache = new Map<string, Statement[]>();
   private profilesCache: PresentationProfileDef[] | null = null;
+  private profilesCacheKey: string | null = null;
 
   constructor(
     private kc: KcClient,
@@ -69,31 +83,44 @@ export class CardsProfileLoader {
     this.classIdCache.clear();
     this.stmtCache.clear();
     this.profilesCache = null;
+    this.profilesCacheKey = null;
   }
 
-  async loadAllProfiles(force = false): Promise<PresentationProfileDef[]> {
-    if (this.profilesCache && !force) return this.profilesCache;
+  /**
+   * Load presentation profiles visible for card rendering.
+   * System seed from `archimate-ui-cards` plus optional org package profiles
+   * (org wins on the same `profileCode`). Reads honour the open ChangeSet overlay.
+   */
+  async loadAllProfiles(force = false, orgPackage?: string): Promise<PresentationProfileDef[]> {
+    const key = orgPackage?.trim() || "";
+    if (this.profilesCache && !force && this.profilesCacheKey === key) {
+      return this.profilesCache;
+    }
 
     const cls = await this.classId("PresentationProfile");
     if (!cls) {
       this.profilesCache = [];
+      this.profilesCacheKey = key;
       return [];
     }
 
-    const page = await this.kc.listEntities({
-      package: UI_CARDS_PKG,
-      instanceOf: cls,
-      includeSubclasses: true,
-      limit: 100,
-    });
-
-    const profiles: PresentationProfileDef[] = [];
-    for (const ent of page.items) {
-      profiles.push(await this.loadProfile(ent));
+    const system = await this.loadProfilesFromPackage(UI_CARDS_PKG, cls);
+    let merged = system;
+    if (key && key !== UI_CARDS_PKG) {
+      const org = await this.loadProfilesFromPackage(key, cls);
+      merged = mergeProfilesByCode(system, org);
     }
-    profiles.sort((a, b) => a.sortOrder - b.sortOrder || a.profileCode.localeCompare(b.profileCode));
-    this.profilesCache = profiles;
-    return profiles;
+
+    this.profilesCache = merged;
+    this.profilesCacheKey = key;
+    return merged;
+  }
+
+  /** All profiles in a package (no merge). Used by the profile editor. */
+  async loadProfilesInPackage(packageCode: string): Promise<PresentationProfileDef[]> {
+    const cls = await this.classId("PresentationProfile");
+    if (!cls) return [];
+    return this.loadProfilesFromPackage(packageCode, cls);
   }
 
   async loadProfile(entityOrId: Entity | string): Promise<PresentationProfileDef> {
@@ -125,6 +152,44 @@ export class CardsProfileLoader {
       sortOrder: intVal(byProp.get("sortOrder")?.[0]?.value) ?? 0,
       slots,
     };
+  }
+
+  /** Resolve property IRI from archimate-ui-cards package only. */
+  async cardsPropertyIri(local: string): Promise<string> {
+    const id = await this.propId(local);
+    if (!id) throw new Error(`archimate-ui-cards property missing: ${local}`);
+    return id;
+  }
+
+  async presentationProfileClassId(): Promise<string> {
+    const id = await this.classId("PresentationProfile");
+    if (!id) throw new Error("PresentationProfile class missing — import archimate-ui-cards");
+    return id;
+  }
+
+  async relationSlotClassId(): Promise<string> {
+    const id = await this.classId("RelationSlot");
+    if (!id) throw new Error("RelationSlot class missing — import archimate-ui-cards");
+    return id;
+  }
+
+  private async loadProfilesFromPackage(
+    packageCode: string,
+    classId: string,
+  ): Promise<PresentationProfileDef[]> {
+    const page = await this.kc.listEntities({
+      package: packageCode,
+      instanceOf: classId,
+      includeSubclasses: true,
+      limit: 200,
+    });
+
+    const profiles: PresentationProfileDef[] = [];
+    for (const ent of page.items) {
+      profiles.push(await this.loadProfile(ent));
+    }
+    profiles.sort((a, b) => a.sortOrder - b.sortOrder || a.profileCode.localeCompare(b.profileCode));
+    return profiles;
   }
 
   private async loadSlotsForProfile(profileId: string): Promise<RelationSlotDef[]> {
@@ -188,7 +253,6 @@ export class CardsProfileLoader {
     return page.items;
   }
 
-  /** Resolve property IRI from archimate-ui-cards package only. */
   private async propId(local: string): Promise<string | undefined> {
     const cached = this.propCache.get(local);
     if (cached) return cached;

@@ -81,7 +81,7 @@ export class CardsService {
     const typeFilter = opts?.classLocal?.trim() || undefined;
     const pageSize = Math.max(1, opts?.pageSize ?? PAGE_SIZE);
 
-    const profiles = await this.loader.loadAllProfiles();
+    const profiles = await this.loader.loadAllProfiles(false, packageCode);
     const classIri = typeFilter
       ? this.schema.snapshot.classesByLocal.get(typeFilter)?.id
       : undefined;
@@ -212,8 +212,8 @@ export class CardsService {
   }
 
   /** Element types for quick filters — from presentation profiles (no entity scan). */
-  async listQuickFilterTypes(): Promise<string[]> {
-    const profiles = await this.loader.loadAllProfiles();
+  async listQuickFilterTypes(orgPackage?: string): Promise<string[]> {
+    const profiles = await this.loader.loadAllProfiles(false, orgPackage);
     const set = new Set<string>();
     for (const p of profiles) {
       if (p.archimateElementType && this.isBrowsableElement(p.archimateElementType)) {
@@ -372,7 +372,7 @@ export class CardsService {
     const expert = options?.expert ?? false;
     const entity = await this.kc.getEntity(entityId);
     const classLocal = (await this.resolveClassLocal(entity)) || "?";
-    const profiles = await this.loader.loadAllProfiles();
+    const profiles = await this.loader.loadAllProfiles(false, entity.packageCode);
     const props = await this.readInterestingProps(entityId, profiles, classLocal);
     const profile = resolvePresentationProfile(classLocal, props, profiles);
 

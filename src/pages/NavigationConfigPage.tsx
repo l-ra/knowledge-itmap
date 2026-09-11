@@ -232,7 +232,7 @@ export function NavigationConfigPage() {
                 onClick={() => {
                   setTemplateCode(t.template.code);
                   saveStoredTemplateCode(t.template.code);
-                  navigate("/");
+                  navigate("/browser");
                 }}
               >
                 Browser

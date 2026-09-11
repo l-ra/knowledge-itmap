@@ -58,6 +58,16 @@ export {
   bindCardsProfileLoader,
 };
 
+export {
+  formatProfileDefinition,
+  draftFromProfile,
+  emptyProfileDraft,
+  emptySlotDraft,
+  getCardProfileService,
+  CardProfileService,
+} from "./cardProfileService";
+export type { ProfileDraft, ProfileSlotDraft } from "./cardProfileService";
+
 export class CardsProfileLoader extends CoreLoader {
   constructor(kc = getKc(), schema = getSchema()) {
     super(kc, schema);

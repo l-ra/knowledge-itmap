@@ -78,7 +78,7 @@ function Breadcrumbs({
 }
 
 function CardsHub() {
-  const { orgPackage, ready } = useApp();
+  const { orgPackage, ready, graphEpoch } = useApp();
   const navigate = useNavigate();
   const service = useMemo(() => new CardsService(), []);
   const [q, setQ] = useState("");
@@ -122,7 +122,7 @@ function CardsHub() {
           pageSize: PAGE_SIZE,
           cursor: opts.cursor,
         }),
-        service.listQuickFilterTypes(),
+        service.listQuickFilterTypes(orgPackage),
       ]);
       if (import.meta.env.DEV) {
         const n = getKc().endReadCount();
@@ -155,8 +155,8 @@ function CardsHub() {
 
   useEffect(() => {
     resetAndLoad();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial / package change
-  }, [orgPackage, ready]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- package / ChangeSet overlay
+  }, [orgPackage, ready, graphEpoch]);
 
   return (
     <div className="page cards-page">
@@ -416,7 +416,7 @@ function CardPanel({
   onOpenNeighbor: (nextId: string) => void;
   onLabel: (label: string) => void;
 }) {
-  const { orgPackage, pushChangeSet } = useApp();
+  const { orgPackage, pushChangeSet, graphEpoch } = useApp();
   const service = useMemo(() => new CardsService(), []);
   const model = useMemo(() => new ModelService(), []);
   const schema = getSchema();
@@ -485,7 +485,7 @@ function CardPanel({
     return () => {
       cancelled = true;
     };
-  }, [entityId, expert, service, reloadToken, onLabel]);
+  }, [entityId, expert, service, reloadToken, onLabel, graphEpoch]);
 
   const propertyGroups = useMemo(
     () => groupStatementsByProperty(schema, stmts, card?.classLocal),

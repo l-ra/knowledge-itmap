@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { AppProvider, useApp } from "@/state/AppContext";
 import { Toast } from "@/components/Toast";
 import { BrowserPage } from "@/pages/BrowserPage";
@@ -9,6 +9,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { NavigationConfigPage } from "@/pages/NavigationConfigPage";
 import { CardsPage } from "@/pages/CardsPage";
+import { CardProfilesPage } from "@/pages/CardProfilesPage";
 
 function ChangeSetBar() {
   const {
@@ -90,6 +91,26 @@ function ChangeSetBar() {
   );
 }
 
+function CardsNav() {
+  const { pathname } = useLocation();
+  const active = pathname === "/cards" || pathname.startsWith("/cards/");
+  return (
+    <div className={`nav-dropdown ${active ? "active" : ""}`}>
+      <button type="button" className="nav-dropdown-trigger" aria-haspopup="true">
+        Karty
+      </button>
+      <div className="nav-dropdown-menu" role="menu">
+        <NavLink to="/cards" end role="menuitem">
+          Procházet karty
+        </NavLink>
+        <NavLink to="/cards/profiles" role="menuitem">
+          Upravit profily karet
+        </NavLink>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const { orgPackage, orgPackageLabel } = useApp();
   return (
@@ -101,20 +122,18 @@ function Shell() {
         </span>
         <ChangeSetBar />
         <nav className="nav-links">
-          <NavLink to="/" end>
-            Browser
-          </NavLink>
-          <NavLink to="/cards">Karty</NavLink>
+          <CardsNav />
           <NavLink to="/search">Search</NavLink>
           <NavLink to="/packages">Packages</NavLink>
-          <NavLink to="/navigation">Navigace</NavLink>
           <NavLink to="/changes">Changes</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
       </header>
       <div className="page-outlet">
         <Routes>
-          <Route path="/" element={<BrowserPage />} />
+          <Route path="/" element={<Navigate to="/cards" replace />} />
+          <Route path="/browser" element={<BrowserPage />} />
+          <Route path="/cards/profiles" element={<CardProfilesPage />} />
           <Route path="/cards/:entityId" element={<CardsPage />} />
           <Route path="/cards" element={<CardsPage />} />
           <Route path="/search" element={<SearchPage />} />

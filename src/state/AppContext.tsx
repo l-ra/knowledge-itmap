@@ -193,6 +193,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     storeActiveChangeSet(cs);
     getKc().setManualChangeSet(cs?.id || null);
     setActiveChangeSet(cs);
+    // Profile/entity reads must see (or drop) the ChangeSet overlay.
+    getCardsProfileLoader().clearCache();
   }, []);
 
   const reloadPackages = useCallback(async () => {
