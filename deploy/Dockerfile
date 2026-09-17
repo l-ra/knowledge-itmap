@@ -1,5 +1,5 @@
-# Multi-stage: build Vite SPA, serve via nginx with KC + MCP reverse proxy.
-FROM node:22-bookworm AS ui
+# Multi-stage: build Vite SPA on BUILDPLATFORM, serve via nginx for TARGETPLATFORM.
+FROM --platform=$BUILDPLATFORM node:22-bookworm AS ui
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages ./packages

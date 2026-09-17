@@ -1,5 +1,6 @@
-# MCP HTTP server image
-FROM node:22-bookworm AS build
+# MCP HTTP server image. Compile on BUILDPLATFORM; runtime image is TARGETPLATFORM.
+# Production deps are pure JS (esbuild is pruned with --omit=dev).
+FROM --platform=$BUILDPLATFORM node:22-bookworm AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages ./packages

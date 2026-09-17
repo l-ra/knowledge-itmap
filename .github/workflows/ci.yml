@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: write
 
 env:
   REGISTRY: ghcr.io
@@ -117,6 +118,9 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # QEMU: UI final stage runs `apk add gettext` on linux/arm64.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/metadata-action@v5
         id: meta
         with:
@@ -128,9 +132,12 @@ jobs:
         with:
           context: .
           file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=knowledge-itmap
+          cache-to: type=gha,mode=max,scope=knowledge-itmap
       - uses: docker/metadata-action@v5
         id: meta-mcp
         with:
@@ -142,9 +149,12 @@ jobs:
         with:
           context: .
           file: deploy/Dockerfile.mcp
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-mcp.outputs.tags }}
           labels: ${{ steps.meta-mcp.outputs.labels }}
+          cache-from: type=gha,scope=knowledge-itmap-mcp
+          cache-to: type=gha,mode=max,scope=knowledge-itmap-mcp
 
   publish-chart:
     runs-on: ubuntu-latest
