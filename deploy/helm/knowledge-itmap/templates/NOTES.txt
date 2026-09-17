@@ -2,7 +2,7 @@
 2. Add Pocket ID redirect URI: `https://<host>/callback` (same OIDC client as KC).
 3. Install:
 
-  helm upgrade --install itmap oci://ghcr.io/l-ra/knowledge-itmap \
+  helm upgrade --install itmap oci://ghcr.io/l-ra/charts/knowledge-itmap \
     --namespace knowledge-core \
     --set image.tag={{ .Chart.AppVersion }} \
     --set mcpImage.tag={{ .Chart.AppVersion }} \

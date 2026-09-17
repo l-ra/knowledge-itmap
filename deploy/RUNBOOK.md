@@ -8,7 +8,7 @@
 ## Instalace
 
 ```bash
-helm upgrade --install itmap oci://ghcr.io/l-ra/knowledge-itmap --version X.Y.Z \
+helm upgrade --install itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version X.Y.Z \
   --namespace knowledge-core \
   --set image.tag=X.Y.Z \
   --set mcpImage.tag=X.Y.Z \
@@ -50,7 +50,7 @@ MCP klienti s OAuth podporou použijí URL `https://<itmap-host>/mcp`.
 ## Upgrade
 
 ```bash
-helm upgrade itmap oci://ghcr.io/l-ra/knowledge-itmap --version X.Y.Z \
+helm upgrade itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version X.Y.Z \
   --namespace knowledge-core \
   --reuse-values \
   --set image.tag=X.Y.Z \

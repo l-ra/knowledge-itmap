@@ -127,14 +127,14 @@ Když KC běží v `oidc`, IT Map nabízí **Přihlásit přes Pocket ID** (OIDC
 - Docker: `deploy/Dockerfile` (UI + nginx proxy), `deploy/Dockerfile.mcp`
 - Helm: [`deploy/helm/README.md`](deploy/helm/README.md), runbook [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md)
 - Images: `ghcr.io/l-ra/knowledge-itmap`, `ghcr.io/l-ra/knowledge-itmap-mcp`
-- Chart OCI: `oci://ghcr.io/l-ra/knowledge-itmap`
+- Chart OCI: `oci://ghcr.io/l-ra/charts/knowledge-itmap`
 - Lokálně: `make helm-lint`, `make podman-build`, `make podman-build-mcp`
 - GitHub Actions: CI na `main`/`PR`, release tag `v*` (stejný vzor jako knowledge-core)
 
 Nasazení do namespace vedle KC:
 
 ```bash
-helm upgrade --install itmap oci://ghcr.io/l-ra/knowledge-itmap --version X.Y.Z \
+helm upgrade --install itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version X.Y.Z \
   --namespace knowledge-core \
   --set knowledgeCore.url=http://kc-knowledge-core:8080
 ```

@@ -62,4 +62,4 @@ JWT `aud` must match KC’s OIDC audience/client_id so KC accepts forwarded toke
 Same pattern as knowledge-core:
 
 - Push `main` → images `latest` + SHA, chart `0.0.0-dev.<run>`
-- Tag `vX.Y.Z` → SemVer images + chart OCI `oci://ghcr.io/l-ra/knowledge-itmap`
+- Tag `vX.Y.Z` → SemVer images + chart OCI `oci://ghcr.io/l-ra/charts/knowledge-itmap`
