@@ -9,7 +9,11 @@ COPY src ./src
 RUN npm ci && npm run build
 
 FROM nginx:1.27-alpine
-RUN apk add --no-cache gettext
+RUN apk add --no-cache gettext \
+  && rm -f /etc/nginx/conf.d/default.conf \
+  && mkdir -p /tmp/nginx /etc/nginx/templates \
+  && chown -R nginx:nginx /tmp/nginx /etc/nginx/conf.d /etc/nginx/templates /var/cache/nginx /var/log/nginx
+COPY deploy/nginx.main.conf /etc/nginx/nginx.conf
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY deploy/docker-entrypoint-ui.sh /docker-entrypoint-ui.sh
 RUN chmod +x /docker-entrypoint-ui.sh
@@ -17,4 +21,5 @@ COPY --from=ui /app/dist /usr/share/nginx/html
 ENV KC_UPSTREAM=http://kc-knowledge-core:8080
 ENV MCP_UPSTREAM=http://itmap-knowledge-itmap-mcp:3100
 EXPOSE 8080
+USER nginx
 ENTRYPOINT ["/docker-entrypoint-ui.sh"]
