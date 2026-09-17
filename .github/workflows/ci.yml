@@ -98,6 +98,13 @@ jobs:
             --set mcp.writePackages=org-demo \
             --set mcp.defaultPackage=org-demo \
             --wait --timeout 180s
+      - name: Diagnose on install failure
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          kubectl describe deploy -l app.kubernetes.io/instance=itmap || true
+          kubectl logs -l app.kubernetes.io/instance=itmap --all-containers --tail=120 || true
       - name: Smoke probes
         run: |
           kubectl port-forward svc/itmap-knowledge-itmap 18081:80 &

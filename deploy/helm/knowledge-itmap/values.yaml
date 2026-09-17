@@ -22,7 +22,8 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
-# nginx official image needs root for entrypoint envsubst; MCP deployment sets its own PSC.
+# nginx needs root for entrypoint envsubst; listens on 8080 so drop-ALL works without NET_BIND_SERVICE.
+# MCP deployment sets its own podSecurityContext.
 podSecurityContext: {}
 
 securityContext:
@@ -33,6 +34,7 @@ securityContext:
 
 service:
   type: ClusterIP
+  # Cluster service port (maps to container 8080 via named targetPort http).
   port: 80
 
 mcpService:

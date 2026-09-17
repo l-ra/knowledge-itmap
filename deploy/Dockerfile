@@ -16,5 +16,5 @@ RUN chmod +x /docker-entrypoint-ui.sh
 COPY --from=ui /app/dist /usr/share/nginx/html
 ENV KC_UPSTREAM=http://kc-knowledge-core:8080
 ENV MCP_UPSTREAM=http://itmap-knowledge-itmap-mcp:3100
-EXPOSE 80
+EXPOSE 8080
 ENTRYPOINT ["/docker-entrypoint-ui.sh"]
