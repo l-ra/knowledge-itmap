@@ -390,12 +390,17 @@ export class CardsService {
       }
     }
 
+    const needNeighborhood = Boolean(profile?.slots.length) || expert;
+    const neighborhood = needNeighborhood
+      ? await this.loadNeighborhood(entityId, profiles)
+      : [];
+
     const slots: CardSlotView[] = [];
     const claimedRelIds = new Set<string>();
 
     if (profile) {
       for (const slot of profile.slots) {
-        const neighbors = await this.querySlotNeighbors(entityId, slot, profiles);
+        const neighbors = this.filterSlotNeighbors(neighborhood, slot);
         for (const n of neighbors) claimedRelIds.add(n.relationshipId);
         const empty = neighbors.length === 0;
         if (!empty || slot.importance === "recommended" || expert) {
@@ -404,11 +409,11 @@ export class CardsService {
       }
     }
 
-    let expertNeighbors: CardNeighbor[] = [];
-    if (expert) {
-      const all = await this.queryAllNeighbors(entityId, profiles);
-      expertNeighbors = all.filter((n) => !claimedRelIds.has(n.relationshipId));
-    }
+    const expertNeighbors = expert
+      ? neighborhood
+          .filter((n) => !claimedRelIds.has(n.relationshipId))
+          .sort((a, b) => a.entityLabel.localeCompare(b.entityLabel, "cs"))
+      : [];
 
     return {
       entityId: entity.id,
@@ -440,66 +445,24 @@ export class CardsService {
     };
   }
 
+  /**
+   * Public slot query — loads neighborhood once then filters.
+   * Prefer `loadCard` when building a full card (avoids repeated KC calls).
+   */
   async querySlotNeighbors(
     entityId: string,
     slot: RelationSlotDef,
     profiles?: PresentationProfileDef[],
   ): Promise<CardNeighbor[]> {
     const allProfiles = profiles ?? (await this.loader.loadAllProfiles());
-    const relClass = this.schema.snapshot.classesByLocal.get(slot.relationshipType);
-    if (!relClass) return [];
-
-    const pairs = await this.neighborsViaRel(entityId, relClass.id, slot.direction);
-    if (pairs.length === 0) return [];
-
-    const neighborIds = [...new Set(pairs.map((p) => p.neighborId))];
-    const byId = await this.batchReadEntitiesMap(neighborIds, {
-      include: ["effectiveClasses", "statements"],
-      properties: this.interestingPropIris(allProfiles),
-    });
-
-    const out: CardNeighbor[] = [];
-    for (const { neighborId, relId } of pairs) {
-      const packed = byId.get(neighborId);
-      if (!packed) continue;
-      const entity = packed.entity;
-      const classLocal =
-        resolveClassLocalFromEmbeds(
-          entity,
-          packed.statements,
-          this.schema.snapshot.instanceOfProperty,
-          this.schema.snapshot.classIriToLocal,
-        ) || "?";
-      if (slot.targetClasses.length && !slot.targetClasses.includes(classLocal)) continue;
-
-      const keys = interestingKeysForClass(allProfiles, classLocal);
-      const props = propMapFromStatements(packed.statements, keys, (iri) =>
-        this.schema.propertyLocal(iri),
-      );
-      const neighborProfile = resolvePresentationProfile(classLocal, props, allProfiles);
-      if (
-        slot.targetProfileCodes.length &&
-        (!neighborProfile || !slot.targetProfileCodes.includes(neighborProfile.profileCode))
-      ) {
-        continue;
-      }
-
-      out.push({
-        entityId: entity.id,
-        entityLabel: entityLabel(entity),
-        classLocal,
-        profileCode: neighborProfile?.profileCode,
-        profileLabelCs: neighborProfile?.labelCs,
-        relationshipId: relId,
-        relationshipType: slot.relationshipType,
-      });
-    }
-
-    out.sort((a, b) => a.entityLabel.localeCompare(b.entityLabel, "cs"));
-    return out;
+    const neighborhood = await this.loadNeighborhood(entityId, allProfiles);
+    return this.filterSlotNeighbors(neighborhood, slot);
   }
 
-  private async queryAllNeighbors(
+  /**
+   * Fetch entity neighborhood once: 2× incoming + batch-read relationships + batch-read neighbors.
+   */
+  private async loadNeighborhood(
     entityId: string,
     profiles: PresentationProfileDef[],
   ): Promise<CardNeighbor[]> {
@@ -594,72 +557,36 @@ export class CardsService {
       });
     }
 
-    out.sort((a, b) => a.entityLabel.localeCompare(b.entityLabel, "cs"));
     return out;
   }
 
-  private async neighborsViaRel(
-    entityId: string,
-    relClassIri: string,
-    direction: "outgoing" | "incoming",
-  ): Promise<Array<{ neighborId: string; relId: string }>> {
-    const snap = this.schema.snapshot;
-    const [asSource, asTarget] = await Promise.all([
-      this.kc.getIncoming(entityId, snap.relSource),
-      this.kc.getIncoming(entityId, snap.relTarget),
-    ]);
-
-    const candidateRels = [
-      ...asSource.items.map((s) => ({ stmt: s, role: "source" as const })),
-      ...asTarget.items.map((s) => ({ stmt: s, role: "target" as const })),
-    ];
-    const relIds = [...new Set(candidateRels.map((c) => c.stmt.subject))];
-    if (relIds.length === 0) return [];
-
-    const relProps = [snap.relSource, snap.relTarget].filter(Boolean);
-    const relMap = await this.batchReadEntitiesMap(relIds, {
-      include: ["effectiveClasses", "statements"],
-      properties: relProps,
-    });
-
-    const out: Array<{ neighborId: string; relId: string }> = [];
-
-    for (const { stmt, role } of candidateRels) {
-      const relId = stmt.subject;
-      const packed = relMap.get(relId);
-      if (!packed) continue;
-
-      const classLocal = resolveClassLocalFromEmbeds(
-        packed.entity,
-        packed.statements,
-        snap.instanceOfProperty,
-        snap.classIriToLocal,
-      );
-      const classIri = classLocal ? snap.classesByLocal.get(classLocal)?.id : undefined;
-      const matchesClass =
-        classIri === relClassIri ||
-        !!packed.entity.effectiveClasses?.includes(relClassIri) ||
-        packed.statements.some(
-          (s) =>
-            s.property === snap.instanceOfProperty &&
-            s.value.type === "EntityReference" &&
-            s.value.entityId === relClassIri,
-        );
-      if (!matchesClass) continue;
-
-      const src = packed.statements.find((s) => s.property === snap.relSource);
-      const tgt = packed.statements.find((s) => s.property === snap.relTarget);
-      if (src?.value.type !== "EntityReference" || tgt?.value.type !== "EntityReference") {
+  private filterSlotNeighbors(
+    neighborhood: CardNeighbor[],
+    slot: RelationSlotDef,
+  ): CardNeighbor[] {
+    const out: CardNeighbor[] = [];
+    for (const n of neighborhood) {
+      if (n.relationshipType !== slot.relationshipType) continue;
+      if (n.direction !== slot.direction) continue;
+      if (slot.targetClasses.length && !slot.targetClasses.includes(n.classLocal)) continue;
+      if (
+        slot.targetProfileCodes.length &&
+        (!n.profileCode || !slot.targetProfileCodes.includes(n.profileCode))
+      ) {
         continue;
       }
-
-      if (direction === "outgoing" && role === "source") {
-        out.push({ neighborId: tgt.value.entityId, relId });
-      } else if (direction === "incoming" && role === "target") {
-        out.push({ neighborId: src.value.entityId, relId });
-      }
+      // Slot neighbors omit direction in the public shape (legacy); keep type/label fields.
+      out.push({
+        entityId: n.entityId,
+        entityLabel: n.entityLabel,
+        classLocal: n.classLocal,
+        profileCode: n.profileCode,
+        profileLabelCs: n.profileLabelCs,
+        relationshipId: n.relationshipId,
+        relationshipType: slot.relationshipType,
+      });
     }
-
+    out.sort((a, b) => a.entityLabel.localeCompare(b.entityLabel, "cs"));
     return out;
   }
 

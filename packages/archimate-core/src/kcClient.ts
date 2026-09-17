@@ -17,9 +17,24 @@ import type {
   EntityFacetsResponse,
   BatchReadResponse,
 } from "./types";
+import {
+  canonicalReadKey,
+  DEFAULT_READ_CACHE_MAX_AGE_MS,
+  DEFAULT_READ_CACHE_STALE_AFTER_MS,
+  hashJson,
+  type ReadCachePort,
+} from "./readCache";
 
 export type { AuthConfig } from "./types";
 export { KcError } from "./errors";
+export type { ReadCachePort, ReadCacheEntry } from "./readCache";
+export {
+  MemoryReadCache,
+  hashJson,
+  canonicalReadKey,
+  DEFAULT_READ_CACHE_STALE_AFTER_MS,
+  DEFAULT_READ_CACHE_MAX_AGE_MS,
+} from "./readCache";
 
 export type KcClientOptions = {
   /** KC API base URL (empty = same origin / relative). */
@@ -32,6 +47,12 @@ export type KcClientOptions = {
    * MCP agents should use `strict`; IT Map UI keeps `relaxed`.
    */
   defaultWriteValidation?: "relaxed" | "strict" | "off";
+  /** Optional SWR cache for getEntity / statements / incoming / batch-read. */
+  readCache?: ReadCachePort;
+  /** Age after which a hit is returned but revalidated in background (default 2 min). */
+  readCacheStaleAfterMs?: number;
+  /** Absolute max age; older entries are ignored (default 15 min). */
+  readCacheMaxAgeMs?: number;
 };
 
 /** Most KC lists use `{ items }`; entity statements/incoming use `{ statements }`. */
@@ -85,7 +106,7 @@ const DEFAULT_AUTH: AuthConfig = {
 
 /**
  * Pure HTTP client for Knowledge Core `/v1`.
- * No localStorage / IndexedDB / import.meta.env — inject baseUrl + auth.
+ * No localStorage / IndexedDB / import.meta.env — inject baseUrl + auth (+ optional readCache).
  */
 export class KcClient {
   private baseUrl: string;
@@ -97,12 +118,34 @@ export class KcClient {
   /** Dev telemetry: count GET requests between beginReadCount/endReadCount. */
   private readCounting = false;
   private readCount = 0;
+  private readCache: ReadCachePort | null;
+  private readCacheStaleAfterMs: number;
+  private readCacheMaxAgeMs: number;
+  private inFlight = new Map<string, Promise<unknown>>();
+  private revalidating = new Set<string>();
 
   constructor(opts: KcClientOptions = {}) {
     this.baseUrl = opts.baseUrl ?? "";
     this.auth = opts.auth ?? { ...DEFAULT_AUTH };
     this.onAuthChange = opts.onAuthChange;
     this.defaultWriteValidation = opts.defaultWriteValidation ?? "relaxed";
+    this.readCache = opts.readCache ?? null;
+    this.readCacheStaleAfterMs = opts.readCacheStaleAfterMs ?? DEFAULT_READ_CACHE_STALE_AFTER_MS;
+    this.readCacheMaxAgeMs = Math.max(
+      opts.readCacheMaxAgeMs ?? DEFAULT_READ_CACHE_MAX_AGE_MS,
+      this.readCacheStaleAfterMs,
+    );
+    this.readCache?.subscribeInvalidate?.(() => {
+      this.inFlight.clear();
+      this.revalidating.clear();
+    });
+  }
+
+  /** Drop all cached reads (e.g. graphEpoch bump / ChangeSet overlay change). */
+  clearReadCache(): void {
+    this.inFlight.clear();
+    this.revalidating.clear();
+    void this.readCache?.invalidateAll();
   }
 
   /** Start counting GET requests (CardsHub A6 telemetry). */
@@ -119,6 +162,7 @@ export class KcClient {
 
   setAuth(auth: AuthConfig): void {
     this.auth = auth;
+    this.clearReadCache();
     this.onAuthChange?.(auth);
   }
 
@@ -128,6 +172,7 @@ export class KcClient {
 
   setBaseUrl(url: string): void {
     this.baseUrl = url;
+    this.clearReadCache();
   }
 
   getBaseUrl(): string {
@@ -143,7 +188,9 @@ export class KcClient {
   }
 
   setManualChangeSet(id: string | null): void {
+    if (this.manualChangeSetId === id) return;
     this.manualChangeSetId = id;
+    this.clearReadCache();
   }
 
   getManualChangeSetId(): string | null {
@@ -156,6 +203,68 @@ export class KcClient {
 
   private effectiveReadCs(): string | null {
     return this.manualChangeSetId;
+  }
+
+  private readScopePrefix(): string {
+    const cs = this.effectiveWriteCs() || this.effectiveReadCs() || "";
+    const auth = `${this.auth.mode}|${this.auth.subject || ""}`;
+    return `base=${this.baseUrl}|auth=${auth}|cs=${cs}|`;
+  }
+
+  private async cachedRead<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+    if (!this.readCache) return fetcher();
+
+    const entry = await this.readCache.get(key);
+    if (entry) {
+      const age = Date.now() - entry.fetchedAt;
+      if (age >= 0 && age < this.readCacheMaxAgeMs) {
+        if (age >= this.readCacheStaleAfterMs) {
+          this.revalidateInBackground(key, fetcher);
+        }
+        return entry.value as T;
+      }
+    }
+
+    return this.fetchAndStore(key, fetcher);
+  }
+
+  private revalidateInBackground<T>(key: string, fetcher: () => Promise<T>): void {
+    if (this.revalidating.has(key) || this.inFlight.has(key)) return;
+    this.revalidating.add(key);
+    void this.fetchAndStore(key, fetcher)
+      .catch(() => {
+        /* keep stale entry on background failure */
+      })
+      .finally(() => {
+        this.revalidating.delete(key);
+      });
+  }
+
+  private async fetchAndStore<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+    const existing = this.inFlight.get(key);
+    if (existing) return existing as Promise<T>;
+
+    const p = (async () => {
+      try {
+        const value = await fetcher();
+        if (this.readCache) {
+          const prev = await this.readCache.get(key);
+          const bodyHash = hashJson(value);
+          // Unchanged soft revalidate: refresh timestamp only.
+          if (prev && prev.bodyHash === bodyHash) {
+            await this.readCache.set(key, { ...prev, fetchedAt: Date.now() });
+          } else {
+            await this.readCache.set(key, { value, fetchedAt: Date.now(), bodyHash });
+          }
+        }
+        return value;
+      } finally {
+        this.inFlight.delete(key);
+      }
+    })();
+
+    this.inFlight.set(key, p);
+    return p;
   }
 
   private async request<T>(
@@ -191,7 +300,10 @@ export class KcClient {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
-    if (res.status === 204) return undefined as T;
+    if (res.status === 204) {
+      if (opts?.cs === "write") this.clearReadCache();
+      return undefined as T;
+    }
 
     const text = await res.text();
     let json: unknown = null;
@@ -220,6 +332,8 @@ export class KcClient {
       console.error(`[KcClient] ${method} ${path} → ${res.status}`, json ?? text);
       throw new KcError(res.status, code, msg, json ?? text, method, path);
     }
+
+    if (opts?.cs === "write") this.clearReadCache();
     return json as T;
   }
 
@@ -331,13 +445,18 @@ export class KcClient {
     include?: string[];
     properties?: string[];
   }): Promise<BatchReadResponse> {
-    return this.request<BatchReadResponse>("POST", "/v1/entities/batch-read", body, {
-      cs: "read",
-    });
+    const key = canonicalReadKey("POST", "/v1/entities/batch-read", body, this.readScopePrefix());
+    return this.cachedRead(key, () =>
+      this.request<BatchReadResponse>("POST", "/v1/entities/batch-read", body, {
+        cs: "read",
+      }),
+    );
   }
 
   getEntity(id: string): Promise<Entity> {
-    return this.request("GET", `/v1/entities/${encodeURIComponent(id)}`, undefined, { cs: "read" });
+    const path = `/v1/entities/${encodeURIComponent(id)}`;
+    const key = canonicalReadKey("GET", path, undefined, this.readScopePrefix());
+    return this.cachedRead(key, () => this.request("GET", path, undefined, { cs: "read" }));
   }
 
   /**
@@ -388,11 +507,10 @@ export class KcClient {
   async getStatements(id: string, property?: string): Promise<ListResponse<Statement>> {
     const q = new URLSearchParams({ limit: "200" });
     if (property) q.set("property", property);
-    const json = await this.request<unknown>(
-      "GET",
-      `/v1/entities/${encodeURIComponent(id)}/statements?${q}`,
-      undefined,
-      { cs: "read" },
+    const path = `/v1/entities/${encodeURIComponent(id)}/statements?${q}`;
+    const key = canonicalReadKey("GET", path, undefined, this.readScopePrefix());
+    const json = await this.cachedRead(key, () =>
+      this.request<unknown>("GET", path, undefined, { cs: "read" }),
     );
     return asListResponse<Statement>(json, ["statements"]);
   }
@@ -400,11 +518,10 @@ export class KcClient {
   async getIncoming(id: string, property?: string): Promise<ListResponse<Statement>> {
     const q = new URLSearchParams({ limit: "200" });
     if (property) q.set("property", property);
-    const json = await this.request<unknown>(
-      "GET",
-      `/v1/entities/${encodeURIComponent(id)}/incoming?${q}`,
-      undefined,
-      { cs: "read" },
+    const path = `/v1/entities/${encodeURIComponent(id)}/incoming?${q}`;
+    const key = canonicalReadKey("GET", path, undefined, this.readScopePrefix());
+    const json = await this.cachedRead(key, () =>
+      this.request<unknown>("GET", path, undefined, { cs: "read" }),
     );
     return asListResponse<Statement>(json, ["statements"]);
   }
@@ -567,6 +684,7 @@ export class KcClient {
       {},
       { idempotencyKey: `cs-commit-${id}-${Date.now()}` },
     );
+    this.clearReadCache();
     return res.data || res.changeSet;
   }
 
@@ -576,6 +694,7 @@ export class KcClient {
       `/v1/changesets/${encodeURIComponent(id)}/cancel`,
       {},
     );
+    this.clearReadCache();
     return res.data || res.changeSet;
   }
 

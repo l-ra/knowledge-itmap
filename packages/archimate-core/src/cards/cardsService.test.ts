@@ -191,3 +191,159 @@ describe("CardsService.listBrowsableEntities", () => {
     expect(map.get("Q-missing")).toBe("Q-missing");
   });
 });
+
+describe("CardsService.loadCard neighborhood", () => {
+  function stmt(
+    id: string,
+    subject: string,
+    property: string,
+    entityId: string,
+  ): Statement {
+    return {
+      id,
+      subject,
+      property,
+      value: { type: "EntityReference", entityId },
+    };
+  }
+
+  it("fetches incoming once and batch-reads at most twice with multiple slots + expert", async () => {
+    const getIncoming = vi.fn(async (_id: string, property?: string) => {
+      if (property === "P-src") {
+        return {
+          items: [
+            stmt("S1", "R-serving", "P-src", "Q-card"),
+            stmt("S2", "R-flow", "P-src", "Q-card"),
+          ],
+        };
+      }
+      return { items: [] as Statement[] };
+    });
+
+    const batchReadEntities = vi.fn(
+      async (body: { ids: string[]; include?: string[]; properties?: string[] }) => {
+        const isRelBatch = body.properties?.includes("P-src");
+        return {
+          results: body.ids.map((id) => {
+            if (isRelBatch) {
+              const tgt = id === "R-serving" ? "Q-n1" : "Q-n2";
+              return {
+                id,
+                entity: {
+                  ...entity(id, id, id === "R-serving" ? "C-Serving" : "C-Flow"),
+                  effectiveClasses: [id === "R-serving" ? "C-Serving" : "C-Flow"],
+                },
+                statements: [
+                  stmt(`${id}-io`, id, "P-io", id === "R-serving" ? "C-Serving" : "C-Flow"),
+                  stmt(`${id}-src`, id, "P-src", "Q-card"),
+                  stmt(`${id}-tgt`, id, "P-tgt", tgt),
+                ],
+              };
+            }
+            return {
+              id,
+              entity: {
+                ...entity(id, `N-${id}`, "C-app"),
+                effectiveClasses: ["C-app"],
+              },
+              statements: [stmt(`${id}-io`, id, "P-io", "C-app")],
+            };
+          }),
+        };
+      },
+    );
+
+    const getEntity = vi.fn(async (id: string) => ({
+      ...entity(id, "Card", "C-app"),
+      packageCode: "org",
+      effectiveClasses: ["C-app"],
+    }));
+    const getStatements = vi.fn(async () => ({
+      items: [stmt("io", "Q-card", "P-io", "C-app")] as Statement[],
+    }));
+
+    const kc = {
+      getEntity,
+      getIncoming,
+      batchReadEntities,
+      getStatements,
+    } as unknown as KcClient;
+
+    const snap = {
+      instanceOfProperty: "P-io",
+      classesByLocal: new Map([
+        ["ApplicationComponent", { id: "C-app" }],
+        ["Serving", { id: "C-Serving" }],
+        ["Flow", { id: "C-Flow" }],
+      ]),
+      propertiesByLocal: new Map(),
+      classIriToLocal: new Map([
+        ["C-app", "ApplicationComponent"],
+        ["C-Serving", "Serving"],
+        ["C-Flow", "Flow"],
+      ]),
+      propertyIriToLocal: new Map(),
+      relSource: "P-src",
+      relTarget: "P-tgt",
+      allowed: [],
+      enums: new Map(),
+      loadedAt: 0,
+    } as unknown as SchemaSnapshot;
+
+    const schema = {
+      snapshot: snap,
+      propertyLocal: () => undefined,
+      tryPropertyIri: (local: string) =>
+        local === "actorKind" ? "P-actorKind" : local === "organizationScope" ? "P-org" : undefined,
+    } as unknown as SchemaResolver;
+
+    const loader = {
+      loadAllProfiles: async () => [
+        {
+          ...profile({
+            profileCode: "app",
+            archimateElementType: "ApplicationComponent",
+            matchProperties: {},
+            fieldProperties: [],
+          }),
+          slots: [
+            {
+              id: "slot-serving",
+              slotCode: "serving",
+              labelCs: "Serving",
+              relationshipType: "Serving",
+              direction: "outgoing" as const,
+              targetClasses: [],
+              targetProfileCodes: [],
+              importance: "recommended" as const,
+              sortOrder: 0,
+            },
+            {
+              id: "slot-flow",
+              slotCode: "flow",
+              labelCs: "Flow",
+              relationshipType: "Flow",
+              direction: "outgoing" as const,
+              targetClasses: [],
+              targetProfileCodes: [],
+              importance: "optional" as const,
+              sortOrder: 1,
+            },
+          ],
+        },
+      ],
+    } as unknown as CardsProfileLoader;
+
+    const svc = new CardsService(kc, schema, loader);
+    const vm = await svc.loadCard("Q-card", { expert: true });
+
+    expect(getIncoming).toHaveBeenCalledTimes(2);
+    expect(batchReadEntities).toHaveBeenCalledTimes(2);
+    expect(vm.slots).toHaveLength(2);
+    expect(vm.slots[0].neighbors).toHaveLength(1);
+    expect(vm.slots[0].neighbors[0].entityId).toBe("Q-n1");
+    expect(vm.slots[1].neighbors).toHaveLength(1);
+    expect(vm.slots[1].neighbors[0].entityId).toBe("Q-n2");
+    expect(vm.expertNeighbors).toHaveLength(0);
+  });
+});

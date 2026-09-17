@@ -3,6 +3,15 @@ export { KcError, formatAppError, logAppError } from "./errors";
 export { KcClient, type KcClientOptions } from "./kcClient";
 export type { AuthConfig } from "./types";
 export {
+  MemoryReadCache,
+  hashJson,
+  canonicalReadKey,
+  DEFAULT_READ_CACHE_STALE_AFTER_MS,
+  DEFAULT_READ_CACHE_MAX_AGE_MS,
+  type ReadCachePort,
+  type ReadCacheEntry,
+} from "./readCache";
+export {
   SchemaResolver,
   entityLabel,
   packageLabel,

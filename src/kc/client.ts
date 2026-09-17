@@ -1,6 +1,7 @@
 export type { AuthConfig } from "@itmap/archimate-core";
-export { KcClient, KcError, type KcClientOptions } from "@itmap/archimate-core";
+export { KcClient, KcError, type KcClientOptions, MemoryReadCache } from "@itmap/archimate-core";
 import { KcClient, type AuthConfig } from "@itmap/archimate-core";
+import { getBrowserReadCache } from "./readCache";
 
 const STORAGE_KEY = "itmap.kc.auth";
 const ACTIVE_CS_KEY = "itmap.activeChangeSet";
@@ -61,12 +62,27 @@ function browserBaseUrl(): string {
   return (import.meta.env.VITE_KC_BASE_URL as string) || "";
 }
 
-/** Browser KcClient: localStorage auth + Vite base URL. */
+function readCacheTtlFromEnv(): { staleAfterMs?: number; maxAgeMs?: number } {
+  const staleRaw = import.meta.env.VITE_KC_READ_CACHE_STALE_AFTER_MS;
+  const maxRaw = import.meta.env.VITE_KC_READ_CACHE_MAX_AGE_MS;
+  const staleAfterMs = staleRaw != null && staleRaw !== "" ? Number(staleRaw) : undefined;
+  const maxAgeMs = maxRaw != null && maxRaw !== "" ? Number(maxRaw) : undefined;
+  return {
+    staleAfterMs: Number.isFinite(staleAfterMs) ? staleAfterMs : undefined,
+    maxAgeMs: Number.isFinite(maxAgeMs) ? maxAgeMs : undefined,
+  };
+}
+
+/** Browser KcClient: localStorage auth + Vite base URL + cross-tab read cache. */
 export function createBrowserKcClient(auth: AuthConfig = loadAuth()): KcClient {
+  const ttl = readCacheTtlFromEnv();
   return new KcClient({
     baseUrl: browserBaseUrl(),
     auth,
     onAuthChange: saveAuth,
+    readCache: getBrowserReadCache(),
+    readCacheStaleAfterMs: ttl.staleAfterMs,
+    readCacheMaxAgeMs: ttl.maxAgeMs,
   });
 }
 

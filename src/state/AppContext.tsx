@@ -166,7 +166,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const actorSubject = bootstrap.data?.actorSubject ?? null;
   const actorRoles = bootstrap.data?.actorRoles ?? [];
 
-  const bumpGraphEpoch = useCallback(() => setGraphEpoch((n) => n + 1), []);
+  const bumpGraphEpoch = useCallback(() => {
+    getKc().clearReadCache();
+    setGraphEpoch((n) => n + 1);
+  }, []);
 
   const reloadNavigationProfile = useCallback(async () => {
     if (!getSchema().isLoaded()) return;
@@ -195,6 +198,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveChangeSet(cs);
     // Profile/entity reads must see (or drop) the ChangeSet overlay.
     getCardsProfileLoader().clearCache();
+    getKc().clearReadCache();
   }, []);
 
   const reloadPackages = useCallback(async () => {
