@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: l-ra/knowledge-itmap
+  MCP_IMAGE_NAME: l-ra/knowledge-itmap-mcp
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build UI
+        run: npm run build
+      - name: Build MCP
+        run: npm run mcp:build
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build UI image
+        run: docker build -f deploy/Dockerfile -t knowledge-itmap:ci .
+      - name: Build MCP image
+        run: docker build -f deploy/Dockerfile.mcp -t knowledge-itmap-mcp:ci .
+
+  helm:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Lint chart
+        run: helm lint deploy/helm/knowledge-itmap
+      - name: Template smoke
+        run: |
+          helm template itmap deploy/helm/knowledge-itmap --set image.tag=ci --set mcpImage.tag=ci > /tmp/rendered.yaml
+          grep -q "kind: Deployment" /tmp/rendered.yaml
+          grep -q "component: mcp" /tmp/rendered.yaml
+          helm template itmap deploy/helm/knowledge-itmap \
+            --set mcp.oauth.enabled=true \
+            --set mcp.oauth.publicUrl=https://itmap.example.com \
+            --set mcp.oauth.issuer=https://id.example.com \
+            > /tmp/rendered-oauth.yaml
+          grep -q "ITMAP_MCP_OAUTH_ENABLED" /tmp/rendered-oauth.yaml
+
+  helm-kind:
+    runs-on: ubuntu-latest
+    needs: [test, helm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: itmap
+      - name: Build and load images
+        run: |
+          docker build -f deploy/Dockerfile -t knowledge-itmap:kind .
+          docker build -f deploy/Dockerfile.mcp -t knowledge-itmap-mcp:kind .
+          kind load docker-image knowledge-itmap:kind --name itmap
+          kind load docker-image knowledge-itmap-mcp:kind --name itmap
+      - name: Install chart
+        run: |
+          helm upgrade --install itmap deploy/helm/knowledge-itmap \
+            --set image.repository=knowledge-itmap \
+            --set image.tag=kind \
+            --set image.pullPolicy=Never \
+            --set mcpImage.repository=knowledge-itmap-mcp \
+            --set mcpImage.tag=kind \
+            --set mcpImage.pullPolicy=Never \
+            --set knowledgeCore.url=http://127.0.0.1:9 \
+            --set mcp.writePackages=org-demo \
+            --set mcp.defaultPackage=org-demo \
+            --wait --timeout 180s
+      - name: Smoke probes
+        run: |
+          kubectl port-forward svc/itmap-knowledge-itmap 18081:80 &
+          sleep 3
+          curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:18081/ | grep -E '200|301|302'
+          kubectl port-forward svc/itmap-knowledge-itmap-mcp 13100:3100 &
+          sleep 2
+          curl -fsS http://127.0.0.1:13100/health | grep -q '"ok":true'
+
+  publish-image:
+    runs-on: ubuntu-latest
+    needs: [test, build, helm]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - uses: docker/metadata-action@v5
+        id: meta-mcp
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.MCP_IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.mcp
+          push: true
+          tags: ${{ steps.meta-mcp.outputs.tags }}
+          labels: ${{ steps.meta-mcp.outputs.labels }}
+
+  publish-chart:
+    runs-on: ubuntu-latest
+    needs: publish-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Package Helm chart (dev)
+        run: |
+          DEV_VERSION="0.0.0-dev.${{ github.run_number }}"
+          ./deploy/helm/scripts/set-chart-version.sh "${DEV_VERSION}"
+          helm package deploy/helm/knowledge-itmap --destination /tmp/chart
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push chart to OCI registry
+        run: |
+          helm push /tmp/chart/knowledge-itmap-*.tgz oci://${{ env.REGISTRY }}/l-ra

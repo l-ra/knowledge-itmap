@@ -118,7 +118,26 @@ docs/           — funkční specifikace a návrhy
 |------|---------|
 | `bootstrap` | Bearer = KC bootstrap heslo (lokální DEV) |
 | `dev` | `X-Subject` + `X-Roles` (KC `KC_AUTH_MODE=dev`) |
-| `bearer` | OIDC / JWT |
+| `oidc` / `bearer` | JWT z Pocket ID (Login page / Settings) |
+
+Když KC běží v `oidc`, IT Map nabízí **Přihlásit přes Pocket ID** (OIDC PKCE, callback `/callback`). Na Pocket ID clientu přidejte redirect `https://<itmap-host>/callback` (stejný client jako KC).
+
+## Deploy / CI
+
+- Docker: `deploy/Dockerfile` (UI + nginx proxy), `deploy/Dockerfile.mcp`
+- Helm: [`deploy/helm/README.md`](deploy/helm/README.md), runbook [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md)
+- Images: `ghcr.io/l-ra/knowledge-itmap`, `ghcr.io/l-ra/knowledge-itmap-mcp`
+- Chart OCI: `oci://ghcr.io/l-ra/knowledge-itmap`
+- Lokálně: `make helm-lint`, `make podman-build`, `make podman-build-mcp`
+- GitHub Actions: CI na `main`/`PR`, release tag `v*` (stejný vzor jako knowledge-core)
+
+Nasazení do namespace vedle KC:
+
+```bash
+helm upgrade --install itmap oci://ghcr.io/l-ra/knowledge-itmap --version X.Y.Z \
+  --namespace knowledge-core \
+  --set knowledgeCore.url=http://kc-knowledge-core:8080
+```
 
 ## Poznámky
 

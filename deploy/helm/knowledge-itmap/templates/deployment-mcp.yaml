@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "knowledge-itmap.mcpFullname" . }}
+  labels:
+    {{- include "knowledge-itmap.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "knowledge-itmap.mcpSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "knowledge-itmap.mcpSelectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "knowledge-itmap.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: mcp
+          image: "{{ .Values.mcpImage.repository }}:{{ .Values.mcpImage.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcpImage.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+          env:
+            - name: ITMAP_MCP_TRANSPORT
+              value: http
+            - name: ITMAP_MCP_HTTP_PORT
+              value: "3100"
+            - name: ITMAP_KC_BASE_URL
+              value: {{ .Values.knowledgeCore.url | quote }}
+            - name: ITMAP_MCP_AUTH_MODE
+              value: {{ .Values.mcp.authMode | quote }}
+            - name: ITMAP_MCP_WRITE_PACKAGES
+              value: {{ .Values.mcp.writePackages | quote }}
+            - name: ITMAP_MCP_DEFAULT_PACKAGE
+              value: {{ .Values.mcp.defaultPackage | quote }}
+            - name: ITMAP_MCP_WRITE_MODE
+              value: {{ .Values.mcp.writeMode | quote }}
+            - name: ITMAP_MCP_LANG
+              value: {{ .Values.mcp.lang | quote }}
+            {{- if .Values.mcp.oauth.enabled }}
+            - name: ITMAP_MCP_OAUTH_ENABLED
+              value: "true"
+            - name: ITMAP_MCP_PUBLIC_URL
+              value: {{ required "mcp.oauth.publicUrl is required when mcp.oauth.enabled" .Values.mcp.oauth.publicUrl | quote }}
+            - name: ITMAP_MCP_OIDC_ISSUER
+              value: {{ required "mcp.oauth.issuer is required when mcp.oauth.enabled" .Values.mcp.oauth.issuer | quote }}
+            - name: ITMAP_MCP_OAUTH_SCOPES
+              value: {{ .Values.mcp.oauth.scopes | quote }}
+            {{- end }}
+            {{- if and (eq .Values.mcp.authMode "service") .Values.mcp.existingSecret }}
+            - name: ITMAP_KC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mcp.existingSecret }}
+                  key: {{ .Values.mcp.existingSecretKey }}
+            - name: ITMAP_KC_AUTH_MODE
+              value: bearer
+            {{- end }}
+            {{- with .Values.mcpExtraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.mcpLivenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.mcpReadinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.mcpResources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

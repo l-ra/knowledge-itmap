@@ -33,6 +33,14 @@ export type McpServerConfig = {
   fileRoots: string[];
   /** Optional actor label used in ChangeSet comments / subject. */
   actor?: string;
+  /** Advertise OAuth PRM + 401 WWW-Authenticate (HTTP only). */
+  oauthEnabled: boolean;
+  /** Public base URL of this MCP (e.g. https://itmap.example.com). */
+  publicUrl: string;
+  /** Pocket ID / OIDC issuer URL. */
+  oauthIssuer: string;
+  /** Scopes advertised in PRM / WWW-Authenticate. */
+  oauthScopes: string[];
 };
 
 function requireEnv(name: string): string {
@@ -143,6 +151,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
 
   const { writePackages, defaultPackage } = resolvePackageConfig(env);
 
+  const oauthEnabled =
+    (env.ITMAP_MCP_OAUTH_ENABLED || "").trim().toLowerCase() === "true" ||
+    (env.ITMAP_MCP_OAUTH_ENABLED || "").trim() === "1";
+  const publicUrl = env.ITMAP_MCP_PUBLIC_URL?.trim() || "";
+  const oauthIssuer = env.ITMAP_MCP_OIDC_ISSUER?.trim() || "";
+  const oauthScopes = parsePackageList(env.ITMAP_MCP_OAUTH_SCOPES).length
+    ? parsePackageList(env.ITMAP_MCP_OAUTH_SCOPES)
+    : ["openid", "profile", "email"];
+
+  if (oauthEnabled) {
+    if (!publicUrl) {
+      throw new Error("ITMAP_MCP_PUBLIC_URL is required when ITMAP_MCP_OAUTH_ENABLED=true");
+    }
+    if (!oauthIssuer) {
+      throw new Error("ITMAP_MCP_OIDC_ISSUER is required when ITMAP_MCP_OAUTH_ENABLED=true");
+    }
+  }
+
   return {
     kcBaseUrl: requireEnv("ITMAP_KC_BASE_URL").replace(/\/+$/, ""),
     writePackages,
@@ -160,5 +186,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     oeMaxBytes,
     fileRoots: parseFileRoots(env.ITMAP_MCP_FILE_ROOTS),
     actor: env.ITMAP_MCP_ACTOR?.trim() || undefined,
+    oauthEnabled,
+    publicUrl,
+    oauthIssuer,
+    oauthScopes,
   };
 }

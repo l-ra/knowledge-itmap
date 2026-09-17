@@ -1,0 +1,6 @@
+apiVersion: v2
+name: knowledge-itmap
+description: IT Map UI + MCP server (Knowledge Core client)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

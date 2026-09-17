@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.github
+docs
+*.md
+.env
+.env.*
+!.env.example
+coverage
+.vitest
+*.log
+.DS_Store
+deploy/helm/**/charts

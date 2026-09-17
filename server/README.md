@@ -100,8 +100,33 @@ Smoke covers: healthz, schema, primer, write-gate without approval, approve, lis
 | `ITMAP_MCP_HTTP_PORT` | | `3100` | |
 | `ITMAP_MCP_OE_MAX_BYTES` | | `5000000` | Open Exchange XML size limit |
 | `ITMAP_MCP_FILE_ROOTS` | for path OE | empty | Colon- or comma-separated absolute dirs; required for `path=` on import/export |
+| `ITMAP_MCP_OAUTH_ENABLED` | | `false` | HTTP: RFC 9728 PRM + `401` `WWW-Authenticate` |
+| `ITMAP_MCP_PUBLIC_URL` | oauth* | — | Public base (e.g. `https://itmap.example.com`) |
+| `ITMAP_MCP_OIDC_ISSUER` | oauth* | — | Pocket ID issuer (same as KC) |
+| `ITMAP_MCP_OAUTH_SCOPES` | | `openid,profile,email` | CSV scopes in PRM |
 
-\* Provide `WRITE_PACKAGES` **or** legacy `ORG_PACKAGE`. With `ITMAP_KC_AUTH_MODE=dev`, token may be empty.
+\* Provide `WRITE_PACKAGES` **or** legacy `ORG_PACKAGE`. With `ITMAP_KC_AUTH_MODE=dev`, token may be empty. OAuth\* required when `ITMAP_MCP_OAUTH_ENABLED=true`.
+
+## HTTP OAuth (MCP clients with OIDC)
+
+When `ITMAP_MCP_TRANSPORT=http` and `ITMAP_MCP_OAUTH_ENABLED=true`:
+
+1. Client hits `/mcp` without Bearer → `401` + `WWW-Authenticate` pointing at Protected Resource Metadata.
+2. `GET /.well-known/oauth-protected-resource/mcp` returns RFC 9728 document with `authorization_servers` = Pocket ID issuer.
+3. Client completes OAuth Authorization Code + PKCE at Pocket ID (same client/audience as Knowledge Core so JWT `aud` validates at KC).
+4. Client retries `/mcp` with `Authorization: Bearer <token>`; MCP uses `ITMAP_MCP_AUTH_MODE=forward` to Knowledge Core.
+
+Example env for cluster:
+
+```bash
+export ITMAP_MCP_TRANSPORT=http
+export ITMAP_MCP_AUTH_MODE=forward
+export ITMAP_MCP_OAUTH_ENABLED=true
+export ITMAP_MCP_PUBLIC_URL=https://itmap.example.com
+export ITMAP_MCP_OIDC_ISSUER=https://id.example.com
+```
+
+Stdio mode does not use OAuth — keep `ITMAP_MCP_AUTH_MODE=service` with a token.
 
 ## Cursor `mcp.json` (bundled binary)
 

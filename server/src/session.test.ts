@@ -95,6 +95,10 @@ describe("AppContext write gate", () => {
       httpPort: 3100,
       oeMaxBytes: 1000,
       fileRoots: [] as string[],
+      oauthEnabled: false,
+      publicUrl: "",
+      oauthIssuer: "",
+      oauthScopes: [] as string[],
     };
     const ctx = AppContext.create(config);
     expect(() => ctx.approveWritePackage("archimate-lite")).toThrow(/metamodel/);

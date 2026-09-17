@@ -5,12 +5,17 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { loadConfig, type McpServerConfig } from "./config.js";
 import { AppContext } from "./context.js";
 import { createMcpServer } from "./createMcpServer.js";
+import {
+  buildProtectedResourceMetadata,
+  requireBearerOnMcp,
+  wwwAuthenticateHeader,
+} from "./oauth.js";
 import { McpSessionState } from "./session.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
   console.error(
-    `itmap-mcp starting transport=${config.transport} writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"} pid=${process.pid}`,
+    `itmap-mcp starting transport=${config.transport} writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"} oauth=${config.oauthEnabled} pid=${process.pid}`,
   );
 
   if (config.transport === "stdio") {
@@ -41,28 +46,48 @@ async function startHttp(config: McpServerConfig): Promise<void> {
     return m?.[1]?.trim() || null;
   };
 
+  const sendUnauthorized = (res: express.Response) => {
+    if (config.oauthEnabled) {
+      res.setHeader("WWW-Authenticate", wwwAuthenticateHeader(config));
+    }
+    res.status(401).json({ error: "Authorization Bearer token required" });
+  };
+
+  const prm = buildProtectedResourceMetadata(config);
+  if (prm) {
+    const sendPrm = (_req: express.Request, res: express.Response) => {
+      res.json(prm);
+    };
+    app.get("/.well-known/oauth-protected-resource", sendPrm);
+    app.get("/.well-known/oauth-protected-resource/mcp", sendPrm);
+  }
+
   app.get("/health", (_req, res) => {
     res.json({
       ok: true,
       transport: "http",
       writePackages: config.writePackages,
       defaultPackage: config.defaultPackage,
+      oauthEnabled: config.oauthEnabled,
       pid: process.pid,
     });
   });
 
   app.all("/mcp", async (req, res) => {
     try {
+      const token = extractBearer(req);
+      if (requireBearerOnMcp(config) && !token) {
+        sendUnauthorized(res);
+        return;
+      }
+
       const sessionId = req.header("mcp-session-id") || undefined;
       let entry = sessionId ? sessions.get(sessionId) : undefined;
 
       if (entry) {
-        if (config.authMode === "forward") {
-          const token = extractBearer(req);
-          if (token) {
-            entry.ctx.session.setForwardedToken(token);
-            entry.ctx.syncAuth();
-          }
+        if (config.authMode === "forward" && token) {
+          entry.ctx.session.setForwardedToken(token);
+          entry.ctx.syncAuth();
         }
         await entry.transport.handleRequest(req, res, req.body);
         return;
@@ -80,7 +105,7 @@ async function startHttp(config: McpServerConfig): Promise<void> {
         lang: config.lang,
         writeMode: config.writeMode,
         authMode: config.authMode,
-        forwardedToken: extractBearer(req),
+        forwardedToken: token,
       });
       const ctx = AppContext.create(config, session);
       const server = createMcpServer(ctx);

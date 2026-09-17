@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { AppProvider, useApp } from "@/state/AppContext";
 import { Toast } from "@/components/Toast";
@@ -10,6 +10,9 @@ import { SearchPage } from "@/pages/SearchPage";
 import { NavigationConfigPage } from "@/pages/NavigationConfigPage";
 import { CardsPage } from "@/pages/CardsPage";
 import { CardProfilesPage } from "@/pages/CardProfilesPage";
+import { LoginPage } from "@/pages/LoginPage";
+import { OidcCallbackPage } from "@/pages/OidcCallbackPage";
+import { loadUiConfig, type UiConfig } from "@/auth/oidc";
 
 function ChangeSetBar() {
   const {
@@ -28,7 +31,6 @@ function ChangeSetBar() {
     setBusy(true);
     try {
       if (isOpen) {
-        // Must Commit or Cancel — do not silently drop
         setErr("Nejdřív Commit nebo Cancel aktivního ChangeSetu.");
         return;
       }
@@ -112,7 +114,7 @@ function CardsNav() {
 }
 
 function Shell() {
-  const { orgPackage, orgPackageLabel } = useApp();
+  const { orgPackage, orgPackageLabel, actorSubject } = useApp();
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -128,6 +130,11 @@ function Shell() {
           <NavLink to="/changes">Changes</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
+        {actorSubject && (
+          <span className="topbar-actor muted" title={actorSubject}>
+            {actorSubject}
+          </span>
+        )}
       </header>
       <div className="page-outlet">
         <Routes>
@@ -148,10 +155,64 @@ function Shell() {
   );
 }
 
+function needsLogin(cfg: UiConfig | null, authToken: string | undefined, authMode: string): boolean {
+  if (!cfg) return false;
+  if (cfg.authMode === "oidc") return !authToken;
+  if (cfg.authMode === "bootstrap") return !authToken;
+  if (cfg.authMode === "dev") return authMode !== "dev";
+  return false;
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const { auth } = useApp();
+  const location = useLocation();
+  const [cfg, setCfg] = useState<UiConfig | null>(null);
+  const [cfgReady, setCfgReady] = useState(false);
+
+  useEffect(() => {
+    loadUiConfig()
+      .then(setCfg)
+      .catch(() => setCfg(null))
+      .finally(() => setCfgReady(true));
+  }, []);
+
+  const path = location.pathname;
+  if (path === "/login" || path === "/callback") {
+    return <>{children}</>;
+  }
+
+  if (!cfgReady) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <p className="muted">Načítám…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (needsLogin(cfg, auth.token, auth.mode)) {
+    return <Navigate to="/login" replace state={{ from: path }} />;
+  }
+
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <AppProvider>
-      <Shell />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/callback" element={<OidcCallbackPage />} />
+        <Route
+          path="/*"
+          element={
+            <AuthGate>
+              <Shell />
+            </AuthGate>
+          }
+        />
+      </Routes>
     </AppProvider>
   );
 }

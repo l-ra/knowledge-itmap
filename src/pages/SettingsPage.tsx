@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { loadUiConfig, startOidcLogin, type UiConfig } from "@/auth/oidc";
 import { getKc, type AuthConfig } from "@/kc/client";
 import { useApp } from "@/state/AppContext";
 
@@ -10,7 +11,14 @@ export function SettingsPage() {
   const [pkg, setPkg] = useState(orgPackage);
   const [me, setMe] = useState<string>("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [uiCfg, setUiCfg] = useState<UiConfig | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    loadUiConfig()
+      .then(setUiCfg)
+      .catch(() => setUiCfg(null));
+  }, []);
 
   async function testConnection() {
     try {
@@ -30,6 +38,19 @@ export function SettingsPage() {
     setMsg("Uloženo — schema se znovu načte");
   }
 
+  function logout() {
+    const cleared: AuthConfig = {
+      mode: uiCfg?.authMode === "dev" ? "dev" : "bootstrap",
+      token: "",
+      subject: "itmap-dev",
+      roles: "admin,editor",
+    };
+    setAuth(cleared);
+    setForm(cleared);
+    setMsg("Odhlášeno");
+    navigate("/login", { replace: true });
+  }
+
   return (
     <div className="page">
       <h2>Settings — Knowledge Core</h2>
@@ -43,6 +64,34 @@ export function SettingsPage() {
         {error ? ` — ${error}` : ""}
       </p>
 
+      {uiCfg?.authMode === "oidc" && (
+        <div className="field" style={{ marginBottom: "1rem" }}>
+          <label>OIDC (Pocket ID)</label>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="toolbar-btn primary"
+              disabled={!uiCfg.oidcIssuer}
+              onClick={() => void startOidcLogin(uiCfg)}
+            >
+              Přihlásit přes IdP
+            </button>
+            <button type="button" className="toolbar-btn" onClick={logout}>
+              Odhlásit
+            </button>
+          </div>
+          <p className="empty" style={{ textAlign: "left", marginTop: "0.35rem" }}>
+            Issuer: <code>{uiCfg.oidcIssuer || "—"}</code> · client:{" "}
+            <code>{uiCfg.oidcClientId || uiCfg.oidcAudience || "—"}</code>
+            <br />
+            Redirect URI musí v Pocket ID zahrnovat{" "}
+            <code>
+              {typeof window !== "undefined" ? `${window.location.origin}/callback` : "/callback"}
+            </code>
+          </p>
+        </div>
+      )}
+
       <div className="field">
         <label>Auth mode</label>
         <select
@@ -51,6 +100,7 @@ export function SettingsPage() {
         >
           <option value="bootstrap">bootstrap (Bearer token = heslo)</option>
           <option value="dev">dev (X-Subject / X-Roles)</option>
+          <option value="oidc">oidc (JWT z IdP)</option>
           <option value="bearer">bearer / OIDC token</option>
         </select>
       </div>
@@ -62,7 +112,7 @@ export function SettingsPage() {
             type="password"
             value={form.token || ""}
             onChange={(e) => setForm({ ...form, token: e.target.value })}
-            placeholder="KC bootstrap password"
+            placeholder="KC bootstrap password or JWT"
           />
         </div>
       )}
@@ -111,6 +161,11 @@ export function SettingsPage() {
         <button type="button" className="toolbar-btn" onClick={() => void reloadSchema()}>
           Reload schema
         </button>
+        {uiCfg?.authMode !== "oidc" && (
+          <button type="button" className="toolbar-btn" onClick={logout}>
+            Odhlásit
+          </button>
+        )}
         <button type="button" className="toolbar-btn" onClick={() => navigate("/")}>
           Zpět na browser
         </button>
