@@ -79,7 +79,7 @@ KC_TOKEN="$ITMAP_KC_TOKEN" npm run setup:seed   # or create org-demo in UI
 npm run mcp:smoke
 ```
 
-Smoke covers: healthz, schema, primer, write-gate without approval, approve, list entities, typed BusinessActor list when present, AllowedRelationship reject, open CS, create element/relationship, get_card, commit, OE export/import via **file path**, cross-package read.
+Smoke covers: healthz, schema, primer, write-gate without approval, approve, list entities, typed BusinessActor list when present, AllowedRelationship reject, open CS, create entity/relationship, create statement → reclassify AS→AC (preserve id) → Function→Actor with props → deprecate statement, get_card, commit, OE export/import via **file path**, cross-package read.
 
 ## Environment
 
@@ -173,6 +173,22 @@ Prefer a **single** MCP server process. After changing env, reload the MCP serve
 | `batch_get_entities` | Up to 200 ids |
 | `inventory_report` | Facets + sample labels |
 | `health` | KC + schema + allowlist |
+
+## Write / graph mutation tools
+
+| Tool | Use |
+|------|-----|
+| `get_changeset` / `list_changesets` | Active or listed CS; cancel clears session (incl. stale) |
+| `create_entity` / `update_entity` / `deprecate_entity` | Entity CRUD-lite (preserve id on reclassify — do not deprecate for type-only fixes) |
+| `create_statement` / `deprecate_statement` / `list_statements` | String / EntityRef / Boolean statements |
+| `set_property` / `clear_property` | String property convenience |
+| `create_relationship` / `update_relationship` | Matrix-gated; update preserves relationship `iriLocal` |
+| `reclassify_entity` / `reclassify_entities` | Change class in-place (`dryRun`, `strictRelations`, `props`) — revise `instanceOf`; peer projection in batch |
+| `get_class_constraints` | Required properties for a class (KC shapes + fallback) |
+| `retarget_view_nodes` | Remap `elementRef` when entity id changes |
+| `apply_operations` | Batch append into active CS (soft limit 300) |
+
+Spec: [`docs/zadani-mcp-graph-mutations.md`](../docs/zadani-mcp-graph-mutations.md), shape/revise: [`docs/zadani-mcp-reclassify-shape.md`](../docs/zadani-mcp-reclassify-shape.md).
 
 ## Elevate / commit
 

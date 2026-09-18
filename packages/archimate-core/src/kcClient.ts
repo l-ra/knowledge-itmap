@@ -349,6 +349,53 @@ export class KcClient {
     return this.request("GET", "/v1/admin/schema-config");
   }
 
+  listShapes(packageCode?: string): Promise<
+    Array<{
+      id?: string;
+      code: string;
+      classId: string;
+      packageCode?: string;
+      document?: {
+        requiredProperties?: string[];
+        allowedProperties?: string[];
+        closed?: boolean;
+        severity?: string;
+      };
+    }>
+  > {
+    const q = packageCode ? `?package=${encodeURIComponent(packageCode)}` : "";
+    return this.request("GET", `/v1/shapes${q}`).then((json) => {
+      const list = asListResponse<{
+        id?: string;
+        code: string;
+        classId: string;
+        packageCode?: string;
+        document?: {
+          requiredProperties?: string[];
+          allowedProperties?: string[];
+          closed?: boolean;
+          severity?: string;
+        };
+      }>(json);
+      return list.items;
+    });
+  }
+
+  getShape(code: string): Promise<{
+    id?: string;
+    code: string;
+    classId: string;
+    packageCode?: string;
+    document?: {
+      requiredProperties?: string[];
+      allowedProperties?: string[];
+      closed?: boolean;
+      severity?: string;
+    };
+  }> {
+    return this.request("GET", `/v1/shapes/${encodeURIComponent(code)}`);
+  }
+
   listPackages(): Promise<ListResponse<PackageInfo>> {
     return this.request("GET", "/v1/packages?limit=200");
   }

@@ -1,16 +1,18 @@
 import fs from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+  APPLY_OPERATIONS_SOFT_LIMIT,
   applyOpenExchangeOrphanActions,
   entityLabel,
   exportOpenExchange,
-  formatAppError,
   getModelingPrimer,
   importOpenExchange,
   isAbstractArchimateClassLocal,
   isRelationshipClassLocal,
   isViewClassLocal,
+  structuredAppError,
   valueToDisplay,
+  type GraphApplyOperation,
   type OrphanAction,
   type OrphanCandidate,
   type PrimerLang,
@@ -44,9 +46,10 @@ function jsonResult(data: unknown) {
 }
 
 function errorResult(err: unknown, context?: string) {
+  const structured = structuredAppError(err, context);
   return {
     isError: true as const,
-    content: [{ type: "text" as const, text: formatAppError(err, context) }],
+    content: [{ type: "text" as const, text: JSON.stringify(structured, null, 2) }],
   };
 }
 
@@ -261,11 +264,19 @@ export function createMcpServer(ctx: AppContext): McpServer {
     },
     async (args) =>
       withTool(ctx, "open_changeset", async () => {
-        if (ctx.session.activeChangeSetId) {
-          return {
-            changeSetId: ctx.session.activeChangeSetId,
-            alreadyOpen: true,
-          };
+        const existing = ctx.session.activeChangeSetId || ctx.kc.getManualChangeSetId();
+        if (existing) {
+          try {
+            const cs = await ctx.kc.getChangeSet(existing);
+            if (cs.status === "open") {
+              ctx.kc.setManualChangeSet(existing);
+              ctx.session.activeChangeSetId = existing;
+              return { changeSetId: existing, alreadyOpen: true, changeSet: cs };
+            }
+            ctx.clearActiveChangeSet();
+          } catch {
+            ctx.clearActiveChangeSet();
+          }
         }
         const actor = ctx.config.actor ? ` actor=${ctx.config.actor}` : "";
         const cs = await ctx.kc.openChangeSet({
@@ -308,16 +319,126 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "cancel_changeset",
     {
-      description: "Cancel the active ChangeSet",
+      description:
+        "Cancel the active ChangeSet and clear session binding (also clears if CS is already cancelled/missing)",
       inputSchema: z.object({}),
     },
     async () =>
       withTool(ctx, "cancel_changeset", async () => {
         const id = ctx.session.activeChangeSetId || ctx.kc.getManualChangeSetId();
         if (!id) throw new Error("No active ChangeSet to cancel");
-        const changeSet = await ctx.kc.cancelChangeSet(id);
-        ctx.clearActiveChangeSet();
-        return { changeSet };
+        try {
+          const changeSet = await ctx.kc.cancelChangeSet(id);
+          ctx.clearActiveChangeSet();
+          return { changeSet, cleared: true };
+        } catch (e) {
+          ctx.clearActiveChangeSet();
+          return {
+            cleared: true,
+            changeSetId: id,
+            note: `ChangeSet cancel failed (session cleared anyway): ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          };
+        }
+      }),
+  );
+
+  server.registerTool(
+    "get_changeset",
+    {
+      description:
+        "Get ChangeSet by id, or the session active ChangeSet when id omitted (status, itemCount, comment)",
+      inputSchema: z.object({
+        id: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "get_changeset", async () => {
+        const id =
+          args.id?.trim() ||
+          ctx.session.activeChangeSetId ||
+          ctx.kc.getManualChangeSetId() ||
+          null;
+        if (!id) throw new Error("No ChangeSet id and no active ChangeSet in session");
+        try {
+          const changeSet = await ctx.kc.getChangeSet(id);
+          if (changeSet.status && changeSet.status !== "open") {
+            if (
+              !args.id &&
+              (ctx.session.activeChangeSetId === id || ctx.kc.getManualChangeSetId() === id)
+            ) {
+              ctx.clearActiveChangeSet();
+            }
+          }
+          return {
+            changeSet: {
+              id: changeSet.id,
+              status: changeSet.status,
+              itemCount: changeSet.itemCount,
+              comment: changeSet.comment,
+              operationType: changeSet.operationType,
+              actor: changeSet.actor,
+              openedAt: changeSet.openedAt,
+              committedAt: changeSet.committedAt,
+            },
+            active: ctx.session.activeChangeSetId === id,
+          };
+        } catch (e) {
+          if (
+            !args.id &&
+            (ctx.session.activeChangeSetId === id || ctx.kc.getManualChangeSetId() === id)
+          ) {
+            ctx.clearActiveChangeSet();
+          }
+          throw new Error(
+            `ChangeSet ${id} not found or unreachable — ${
+              !args.id ? "session cleared. " : ""
+            }${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      }),
+  );
+
+  server.registerTool(
+    "list_changesets",
+    {
+      description: "List ChangeSets (default status=open). Optional package filters MCP comments.",
+      inputSchema: z.object({
+        status: z.string().optional().describe("Default: open"),
+        package: z.string().optional().describe("Best-effort filter on comment package=…"),
+        limit: z.number().int().positive().max(100).optional(),
+        actor: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "list_changesets", async () => {
+        const status = args.status?.trim() || "open";
+        const page = await ctx.kc.listChangeSets({
+          status,
+          limit: args.limit ?? 50,
+          actor: args.actor,
+        });
+        let items = page.items || [];
+        if (args.package?.trim()) {
+          const needle = `package=${args.package.trim()}`;
+          items = items.filter((cs) => (cs.comment || "").includes(needle));
+        }
+        return {
+          status,
+          package: args.package ?? null,
+          items: items.map((cs) => ({
+            id: cs.id,
+            status: cs.status,
+            itemCount: cs.itemCount,
+            comment: cs.comment,
+            operationType: cs.operationType,
+            actor: cs.actor,
+            openedAt: cs.openedAt,
+            committedAt: cs.committedAt,
+          })),
+          nextCursor: page.nextCursor,
+        };
       }),
   );
 
@@ -415,7 +536,8 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "get_usage_guidance",
     {
-      description: "usageGuidance / usageExamples statements for a class (by iriLocal or classLocal)",
+      description:
+        "usageGuidance / usageExamples for a class, plus requiredProperties from get_class_constraints",
       inputSchema: z.object({
         iriLocal: z.string().optional(),
         classLocal: z.string().optional(),
@@ -435,6 +557,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
           stmts.items
             .filter((s) => propIri && s.property === propIri)
             .map((s) => valueToDisplay(s.value));
+        const constraints = await ctx.model.getClassConstraints(local);
         return {
           classLocal: local,
           classId: cls.id,
@@ -442,7 +565,26 @@ export function createMcpServer(ctx: AppContext): McpServer {
           usageGuidance: pick(guidanceProp),
           usageExamples: pick(examplesProp),
           descriptions: cls.descriptions,
+          constraintsRef: "get_class_constraints",
+          requiredProperties: constraints.requiredProperties,
+          constraintsSource: constraints.source,
         };
+      }),
+  );
+
+  server.registerTool(
+    "get_class_constraints",
+    {
+      description:
+        "Required (and recommended) properties for a class from KC shapes / fallback table. Call before reclassify to a shaped class (e.g. BusinessActor).",
+      inputSchema: z.object({
+        classLocal: z.string(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "get_class_constraints", async () => {
+        await ctx.ensureSchemaLoaded();
+        return ctx.model.getClassConstraints(args.classLocal.trim());
       }),
   );
 
@@ -687,36 +829,24 @@ export function createMcpServer(ctx: AppContext): McpServer {
   // ── Write ────────────────────────────────────────────────────────────────
 
   server.registerTool(
-    "create_element",
+    "create_entity",
     {
       description:
-        "Create an ArchiMate element (open ChangeSet). Optional relationship to selectedId.",
+        "Create an ArchiMate element (labels + instanceOf + optional string props) in the open ChangeSet",
       inputSchema: z.object({
         packageCode: z.string().optional(),
         name: z.string(),
         classLocal: z.string(),
         description: z.string().optional(),
+        iriLocal: z.string().optional(),
         props: z.record(z.string()).optional(),
-        selectedId: z.string().optional(),
-        relationshipType: z.string().optional(),
-        relationshipDirection: z
-          .enum(["from-new-to-selected", "from-selected-to-new"])
-          .optional(),
       }),
     },
     async (args) =>
-      withTool(ctx, "create_element", async () => {
+      withTool(ctx, "create_entity", async () => {
         await ctx.ensureSchemaLoaded();
         const packageCode = ctx.resolveWritePackage(args.packageCode);
-        await ctx.ensureOpenChangeSet("create_element");
-        const link =
-          args.selectedId && args.relationshipType
-            ? {
-                typeLocal: args.relationshipType,
-                otherId: args.selectedId,
-                direction: args.relationshipDirection || ("from-selected-to-new" as const),
-              }
-            : undefined;
+        await ctx.ensureOpenChangeSet("create_entity");
         const result = await ctx.model.createTypedElement({
           packageCode,
           classLocal: args.classLocal,
@@ -724,13 +854,47 @@ export function createMcpServer(ctx: AppContext): McpServer {
           descriptions: args.description
             ? { en: args.description, cs: args.description }
             : undefined,
+          iriLocal: args.iriLocal,
           extraProps: args.props,
-          link,
         });
         return {
           entity: summarizeEntity(result.entity, ctx),
-          relationship: result.relationship ? summarizeEntity(result.relationship, ctx) : undefined,
           changeSetId: result.changeSet.id,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "update_entity",
+    {
+      description: "Update entity labels and/or descriptions (saveEntityBasics / patchEntity)",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        id: z.string(),
+        labels: z.record(z.string()).optional(),
+        descriptions: z.record(z.string()).nullable().optional(),
+        expectedRevision: z.number().int().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "update_entity", async () => {
+        const entity = await ctx.kc.getEntity(args.id);
+        ctx.resolveWritePackage(args.packageCode || entity.packageCode);
+        await ctx.ensureOpenChangeSet("update_entity");
+        if (!args.labels && args.descriptions === undefined) {
+          throw new Error("update_entity requires labels and/or descriptions");
+        }
+        const changeSet = await ctx.model.saveEntityBasics({
+          id: args.id,
+          labels: args.labels,
+          descriptions: args.descriptions,
+          revision: args.expectedRevision ?? entity.revisionNo,
+        });
+        const updated = await ctx.kc.getEntity(args.id);
+        return {
+          entity: summarizeEntity(updated, ctx),
+          changeSetId: changeSet?.id ?? null,
+          noop: changeSet === null,
         };
       }),
   );
@@ -764,9 +928,142 @@ export function createMcpServer(ctx: AppContext): McpServer {
   );
 
   server.registerTool(
+    "update_relationship",
+    {
+      description:
+        "Change relationship sourceId / targetId / typeLocal while preserving relationship id and iriLocal",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        id: z.string(),
+        sourceId: z.string().optional(),
+        targetId: z.string().optional(),
+        typeLocal: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "update_relationship", async () => {
+        await ctx.ensureSchemaLoaded();
+        if (!args.sourceId && !args.targetId && !args.typeLocal) {
+          throw new Error("update_relationship requires sourceId, targetId, and/or typeLocal");
+        }
+        const entity = await ctx.kc.getEntity(args.id);
+        const packageCode = ctx.resolveWritePackage(args.packageCode || entity.packageCode);
+        await ctx.ensureOpenChangeSet("update_relationship");
+        const result = await ctx.model.updateRelationship({
+          id: args.id,
+          packageCode,
+          sourceId: args.sourceId,
+          targetId: args.targetId,
+          typeLocal: args.typeLocal,
+        });
+        return {
+          entity: summarizeEntity(result.entity, ctx),
+          iriLocal: result.iriLocal,
+          changeSetId: result.changeSet.id,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "create_statement",
+    {
+      description:
+        "Create a statement (String | EntityReference | Boolean). Use for instanceOf EntityRef or string props.",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        subjectId: z.string(),
+        propertyLocal: z.string(),
+        valueType: z.enum(["string", "entityRef", "boolean"]),
+        value: z.union([z.string(), z.boolean()]),
+        upsert: z.boolean().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "create_statement", async () => {
+        await ctx.ensureSchemaLoaded();
+        const subject = await ctx.kc.getEntity(args.subjectId);
+        const packageCode = ctx.resolveWritePackage(args.packageCode || subject.packageCode);
+        await ctx.ensureOpenChangeSet("create_statement");
+        const res = await ctx.model.createTypedStatement({
+          packageCode,
+          subjectId: args.subjectId,
+          propertyLocal: args.propertyLocal,
+          valueType: args.valueType,
+          value: args.value,
+          upsert: args.upsert,
+        });
+        return {
+          statement: {
+            id: res.statement.id,
+            subject: res.statement.subject,
+            property: res.statement.property,
+            value: res.statement.value,
+            revisionNo: res.statement.revisionNo,
+          },
+          changeSetId: res.changeSet.id,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "deprecate_statement",
+    {
+      description: "Deprecate a statement by id (no hard delete)",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        statementId: z.string(),
+        expectedRevision: z.number().int().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "deprecate_statement", async () => {
+        if (args.packageCode) ctx.resolveWritePackage(args.packageCode);
+        else if (ctx.session.workingPackage) ctx.resolveWritePackage(ctx.session.workingPackage);
+        else throw new Error("deprecate_statement requires packageCode or approved workingPackage");
+        await ctx.ensureOpenChangeSet("deprecate_statement");
+        const changeSet = await ctx.model.deprecateStatementById(
+          args.statementId,
+          args.expectedRevision,
+        );
+        return { statementId: args.statementId, changeSetId: changeSet.id };
+      }),
+  );
+
+  server.registerTool(
+    "list_statements",
+    {
+      description:
+        "List active statements for a subject. Optional propertyLocal filter; propertyLocal=instanceOf uses schema-config instanceOfProperty (kc-base). Unfiltered list merges instanceOf when KC omits model properties.",
+      inputSchema: z.object({
+        subjectId: z.string(),
+        propertyLocal: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "list_statements", async () => {
+        await ctx.ensureSchemaLoaded();
+        const items = await ctx.model.listStatementsForSubject(args.subjectId, args.propertyLocal);
+        return {
+          subjectId: args.subjectId,
+          propertyLocal: args.propertyLocal ?? null,
+          items: items.map((s) => ({
+            id: s.id,
+            subject: s.subject,
+            property: s.property,
+            propertyLocal: ctx.schema.propertyLocal(s.property) || s.property.split("/").pop(),
+            value: s.value,
+            display: valueToDisplay(s.value),
+            revisionNo: s.revisionNo,
+            status: s.status,
+          })),
+        };
+      }),
+  );
+
+  server.registerTool(
     "set_property",
     {
-      description: "Set/replace a string property on an entity",
+      description: "Set/replace a string property on an entity (convenience over create_statement)",
       inputSchema: z.object({
         packageCode: z.string().optional(),
         id: z.string(),
@@ -798,7 +1095,7 @@ export function createMcpServer(ctx: AppContext): McpServer {
   server.registerTool(
     "clear_property",
     {
-      description: "Clear a property by deprecating its statement(s)",
+      description: "Clear a property by deprecating all active statements for that property",
       inputSchema: z.object({
         packageCode: z.string().optional(),
         id: z.string(),
@@ -810,20 +1107,19 @@ export function createMcpServer(ctx: AppContext): McpServer {
         await ctx.ensureSchemaLoaded();
         ctx.resolveWritePackage(args.packageCode);
         await ctx.ensureOpenChangeSet("clear_property");
-        const propIri = ctx.schema.propertyIri(args.propertyLocal);
-        const page = await ctx.kc.getStatements(args.id, propIri);
-        const changeSets = [];
-        for (const st of page.items) {
-          changeSets.push(await ctx.model.deprecatePropertyStatement(st));
-        }
-        return { deprecated: page.items.length, changeSetIds: changeSets.map((c) => c.id) };
+        const result = await ctx.model.clearPropertyStatements({
+          subjectId: args.id,
+          propertyLocal: args.propertyLocal,
+        });
+        return result;
       }),
   );
 
   server.registerTool(
     "deprecate_entity",
     {
-      description: "Deprecate an entity",
+      description:
+        "Deprecate an entity (use when replacing with a new id — not for in-place reclassify)",
       inputSchema: z.object({
         packageCode: z.string().optional(),
         id: z.string(),
@@ -843,6 +1139,132 @@ export function createMcpServer(ctx: AppContext): McpServer {
           changeSetId: res.changeSet.id,
           packageCode,
         };
+      }),
+  );
+
+  server.registerTool(
+    "reclassify_entity",
+    {
+      description:
+        "Change entity class (instanceOf) while preserving id and iriLocal. Prefer revise path; pass props for shaped targets (e.g. BusinessActor). dryRun first — check missingRequiredProps + invalidRelationships.",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        id: z.string(),
+        newClassLocal: z.string(),
+        props: z.record(z.string()).optional(),
+        strictRelations: z.enum(["fail", "warn"]).optional(),
+        dryRun: z.boolean().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "reclassify_entity", async () => {
+        await ctx.ensureSchemaLoaded();
+        const entity = await ctx.kc.getEntity(args.id);
+        const packageCode = ctx.resolveWritePackage(args.packageCode || entity.packageCode);
+        if (!args.dryRun) await ctx.ensureOpenChangeSet("reclassify_entity");
+        return ctx.model.reclassifyEntity({
+          id: args.id,
+          packageCode,
+          newClassLocal: args.newClassLocal,
+          props: args.props,
+          strictRelations: args.strictRelations,
+          dryRun: args.dryRun,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "reclassify_entities",
+    {
+      description:
+        "Batch reclassify (preserve ids). Peer classes in the same batch are projected in dryRun. Missing required props or strictRelations=fail blocks the entire batch.",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        ids: z.array(z.string()).optional(),
+        fromClassLocal: z.string().optional(),
+        newClassLocal: z.string(),
+        props: z.record(z.string()).optional(),
+        strictRelations: z.enum(["fail", "warn"]).optional(),
+        dryRun: z.boolean().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "reclassify_entities", async () => {
+        await ctx.ensureSchemaLoaded();
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
+        if (!args.ids?.length && !args.fromClassLocal) {
+          throw new Error("reclassify_entities requires ids[] and/or fromClassLocal");
+        }
+        if (!args.dryRun) await ctx.ensureOpenChangeSet("reclassify_entities");
+        return ctx.model.reclassifyEntities({
+          ids: args.ids,
+          packageCode,
+          fromClassLocal: args.fromClassLocal,
+          newClassLocal: args.newClassLocal,
+          props: args.props,
+          strictRelations: args.strictRelations,
+          dryRun: args.dryRun,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "retarget_view_nodes",
+    {
+      description:
+        "Retarget ViewNode.elementRef fromElementId → toElementId (needed when replacing entity id; not after pure reclassify)",
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        fromElementId: z.string(),
+        toElementId: z.string(),
+        viewId: z.string().optional(),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "retarget_view_nodes", async () => {
+        await ctx.ensureSchemaLoaded();
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
+        await ctx.ensureOpenChangeSet("retarget_view_nodes");
+        const result = await ctx.model.retargetViewNodes({
+          packageCode,
+          fromElementId: args.fromElementId,
+          toElementId: args.toElementId,
+          viewId: args.viewId,
+        });
+        return {
+          updated: result.updated,
+          nodeIds: result.nodeIds,
+          changeSetId: result.changeSet.id,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "apply_operations",
+    {
+      description: `Append a batch of graph ops to the active ChangeSet (soft limit ${APPLY_OPERATIONS_SOFT_LIMIT}). Ops: createEntity, updateEntity, deprecateEntity, createStatement, deprecateStatement, createRelationship, setProperty, clearProperty, reclassifyEntity.`,
+      inputSchema: z.object({
+        packageCode: z.string().optional(),
+        operations: z.array(z.record(z.unknown())).min(1),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "apply_operations", async () => {
+        await ctx.ensureSchemaLoaded();
+        const packageCode = ctx.resolveWritePackage(args.packageCode);
+        if (args.operations.length > APPLY_OPERATIONS_SOFT_LIMIT) {
+          throw new Error(
+            `apply_operations soft limit is ${APPLY_OPERATIONS_SOFT_LIMIT} ops/call (got ${args.operations.length})`,
+          );
+        }
+        await ctx.ensureOpenChangeSet("apply_operations");
+        const ops = args.operations as GraphApplyOperation[];
+        for (const op of ops) {
+          if (!op || typeof op !== "object" || typeof (op as { op?: unknown }).op !== "string") {
+            throw new Error("Each operation must include string field op");
+          }
+        }
+        return ctx.model.applyGraphOperations(packageCode, ops);
       }),
   );
 

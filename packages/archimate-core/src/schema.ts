@@ -152,6 +152,17 @@ export class SchemaResolver {
       );
     }
 
+    // Assert typing property entity exists (do not fall back to package-local instanceOf).
+    try {
+      await this.kc.getEntity(config.instanceOfProperty);
+    } catch (e) {
+      throw new Error(
+        `schema-config.instanceOfProperty entity not found: ${config.instanceOfProperty}` +
+          (e instanceof Error ? ` (${e.message})` : ""),
+      );
+    }
+    console.info(`[SchemaResolver] instanceOfProperty=${config.instanceOfProperty}`);
+
     const [amlClasses, amlProperties, uiClasses, uiProperties, cardClasses, cardProperties] =
       await Promise.all([
         this.loadAllKind(AML, "class"),
@@ -224,6 +235,20 @@ export class SchemaResolver {
 
     const enums = await this.loadEnums(propertiesByLocal);
 
+    const packageLocalInstanceOf = propertiesByLocal.get("instanceOf")?.id;
+    if (
+      packageLocalInstanceOf &&
+      packageLocalInstanceOf !== config.instanceOfProperty
+    ) {
+      console.warn(
+        `[SchemaResolver] ignoring package-local instanceOf=${packageLocalInstanceOf}; ` +
+          `using schema-config instanceOfProperty=${config.instanceOfProperty}`,
+      );
+    }
+
+    // Index config IRI → local "instanceOf" for propertyLocal() lookups (list_statements display).
+    propertyIriToLocal.set(config.instanceOfProperty, "instanceOf");
+
     this.snap = {
       instanceOfProperty: config.instanceOfProperty,
       classesByLocal,
@@ -251,13 +276,21 @@ export class SchemaResolver {
     return c.id;
   }
 
+  /**
+   * Resolve property IRI by local name.
+   * Never use this for typing — callers must use snapshot.instanceOfProperty for instanceOf.
+   */
   propertyIri(local: string): string {
+    if (local === "instanceOf") {
+      return this.snapshot.instanceOfProperty;
+    }
     const p = this.snapshot.propertiesByLocal.get(local);
     if (!p) throw new Error(`Unknown property iriLocal: ${local}`);
     return p.id;
   }
 
   tryPropertyIri(local: string): string | undefined {
+    if (local === "instanceOf") return this.snapshot.instanceOfProperty;
     return this.snapshot.propertiesByLocal.get(local)?.id;
   }
 

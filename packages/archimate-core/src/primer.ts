@@ -27,7 +27,32 @@ služby“ = Realization). Karty nejsou KC Lens — jen projekce pro agenta/UI.
 Views: DiagramView / ViewNode / ViewConnection = prezentace; nejdřív element/rel
 v grafu, potom node/connection.
 
-Open Exchange: import/export ArchiMate 3 XML (včetně views); identity přes IRI aliasy.`;
+Čištění / změna typu (zachovat id):
+- Nepoužívejte import_open_exchange k reclassify (riziko dual instanceOf).
+- Preferujte reclassify_entity / reclassify_entities (stejné id i iriLocal; views zůstanou).
+- Shaped třídy (BusinessActor, Flow, …): nejdřív get_class_constraints(newClassLocal).
+- dryRun=true s props → missingRequiredProps + invalidRelationships (peer projection v batchi).
+- Doplňte props / vyřešte vztahy, pak dryRun=false; strictRelations=fail při konfliktu matice.
+- Deprecate entity jen při skutečné náhradě novým id (ne po čistém reclassify).
+
+Reclassify shaped (Function→Actor):
+1. get_class_constraints("BusinessActor") → actorKind, organizationScope
+2. reclassify_*(…, dryRun=true, props={actorKind, organizationScope})
+3. Doplnit props / deprecate|update_relationship dle reportu
+4. reclassify_*(…, dryRun=false, props=…)
+5. commit_changeset(confirm_commit=true)
+Příklad props: actorKind=organizationalUnit|organization|person, organizationScope=internal|external.
+
+Recept AS→AC „split“ (bez dedicovaného toolu):
+1. reclassify_entities (ApplicationService → ApplicationComponent, preserve id)
+2. create_entity (ApplicationService) — behaviorální companion
+3. create_relationship (Realization AC → AS)
+4. update_relationship (Serving ends / typ) dle potřeby
+5. update_entity (labels) volitelně
+6. deprecate_entity jen pokud vzniká náhradní entita s novým id
+
+Open Exchange: import/export ArchiMate 3 XML (včetně views); identity přes IRI aliasy.
+OE zůstává pro bulk sync, ne pro typové migrace.`;
 
 export const MODELING_PRIMER_EN = `ArchiMate Lite (IT Map) — short primer
 
@@ -54,7 +79,32 @@ Cards (archimate-ui-cards): business labels for types and relationship slots
 Views: DiagramView / ViewNode / ViewConnection are presentation; ensure element/rel
 exist before adding nodes/connections.
 
-Open Exchange: import/export ArchiMate 3 XML (including views); identity via IRI aliases.`;
+Type cleanup (preserve id):
+- Do not use import_open_exchange to reclassify (dual instanceOf risk).
+- Prefer reclassify_entity / reclassify_entities (same id and iriLocal; views stay linked).
+- Shaped classes (BusinessActor, Flow, …): call get_class_constraints(newClassLocal) first.
+- dryRun=true with props → missingRequiredProps + invalidRelationships (peer projection in batch).
+- Fix props / relations, then dryRun=false; strictRelations=fail blocks matrix conflicts.
+- Deprecate an entity only when replacing it with a new id (not after pure reclassify).
+
+Shaped reclassify (Function→Actor):
+1. get_class_constraints("BusinessActor") → actorKind, organizationScope
+2. reclassify_*(…, dryRun=true, props={actorKind, organizationScope})
+3. Supply props / deprecate|update_relationship per report
+4. reclassify_*(…, dryRun=false, props=…)
+5. commit_changeset(confirm_commit=true)
+Example props: actorKind=organizationalUnit|organization|person, organizationScope=internal|external.
+
+Recipe AS→AC “split” (compose primitives; no dedicated tool):
+1. reclassify_entities (ApplicationService → ApplicationComponent, preserve id)
+2. create_entity (ApplicationService) — behavioral companion
+3. create_relationship (Realization AC → AS)
+4. update_relationship (Serving ends / type) as needed
+5. update_entity (labels) optional
+6. deprecate_entity only if a replacement entity with a new id is created
+
+Open Exchange: import/export ArchiMate 3 XML (including views); identity via IRI aliases.
+OE is for bulk sync, not type migrations.`;
 
 export function getModelingPrimer(lang: PrimerLang = "cs"): string {
   return lang === "en" ? MODELING_PRIMER_EN : MODELING_PRIMER_CS;

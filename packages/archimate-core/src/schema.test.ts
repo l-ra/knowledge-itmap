@@ -177,7 +177,10 @@ describe("SchemaResolver", () => {
       }),
     }));
 
-    const getEntity = vi.fn();
+    const getEntity = vi.fn(async (id: string) => {
+      if (id === "P-io") return prop("P-io", "instanceOf");
+      throw new Error(`unexpected getEntity ${id}`);
+    });
     const getStatements = vi.fn();
 
     const kc = {
@@ -192,8 +195,9 @@ describe("SchemaResolver", () => {
     const snap = await schema.load({ force: true });
 
     expect(batchReadEntities).toHaveBeenCalled();
-    expect(getEntity).not.toHaveBeenCalled();
+    expect(getEntity).toHaveBeenCalledWith("P-io");
     expect(getStatements).not.toHaveBeenCalled();
+    expect(snap.instanceOfProperty).toBe("P-io");
     expect(snap.allowed).toEqual([
       {
         typeLocal: "Serving",
@@ -204,6 +208,21 @@ describe("SchemaResolver", () => {
         targetIri: "C-tgt",
       },
     ]);
+  });
+
+  it("fails load when schema-config instanceOfProperty entity is missing", async () => {
+    const kc = {
+      getSchemaConfig: async () => ({ instanceOfProperty: "P-missing-io" }),
+      listEntities: async () => ({ items: [] }),
+      batchReadEntities: async () => ({ results: [] }),
+      getEntity: async () => {
+        throw new Error("not found");
+      },
+      getStatements: async () => ({ items: [] }),
+    } as unknown as KcClient;
+
+    const schema = new SchemaResolver({ kc });
+    await expect(schema.load({ force: true })).rejects.toThrow(/P-missing-io/);
   });
 
   it("dedupes concurrent load() calls (StrictMode)", async () => {

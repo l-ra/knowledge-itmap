@@ -129,7 +129,7 @@ async function main(): Promise<void> {
     name: `MCP Smoke App ${stamp}`,
     iriLocal: `mcp-smoke-app-${stamp}`,
   });
-  log("create_element", { id: created.entity.id, iriLocal: created.entity.iriLocal });
+  log("create_entity", { id: created.entity.id, iriLocal: created.entity.iriLocal });
 
   const svc = await ctx.model.createTypedElement({
     packageCode: writePkg,
@@ -137,7 +137,7 @@ async function main(): Promise<void> {
     name: `MCP Smoke Svc ${stamp}`,
     iriLocal: `mcp-smoke-svc-${stamp}`,
   });
-  log("create_element service", svc.entity.id);
+  log("create_entity service", svc.entity.id);
 
   const rel = await ctx.model.createRelationship({
     packageCode: writePkg,
@@ -146,6 +146,143 @@ async function main(): Promise<void> {
     targetId: svc.entity.id,
   });
   log("create_relationship", rel.id);
+
+  // Graph mutations: statement → reclassify (preserve id) → deprecate statement
+  const misclass = await ctx.model.createTypedElement({
+    packageCode: writePkg,
+    classLocal: "ApplicationService",
+    name: `MCP Smoke Reclass ${stamp}`,
+    iriLocal: `mcp-smoke-reclass-${stamp}`,
+  });
+  const preservedId = misclass.entity.id;
+  const preservedIri = misclass.entity.iriLocal;
+  log("create_entity for reclassify", { id: preservedId, iriLocal: preservedIri });
+
+  const stmt = await ctx.model.createTypedStatement({
+    packageCode: writePkg,
+    subjectId: preservedId,
+    propertyLocal: "modelingDepth",
+    valueType: "string",
+    value: "catalog",
+  });
+  log("create_statement", { statementId: stmt.statement.id, property: "modelingDepth" });
+
+  const dry = await ctx.model.reclassifyEntity({
+    id: preservedId,
+    packageCode: writePkg,
+    newClassLocal: "ApplicationComponent",
+    dryRun: true,
+    strictRelations: "fail",
+  });
+  if (!dry.ok && dry.invalidRelationships.length) {
+    throw new Error(`reclassify dryRun unexpected invalid: ${JSON.stringify(dry.invalidRelationships)}`);
+  }
+  log("reclassify_entity dryRun", { from: dry.fromClass, to: dry.toClass, wouldWrite: dry.wouldWrite });
+
+  const reclass = await ctx.model.reclassifyEntity({
+    id: preservedId,
+    packageCode: writePkg,
+    newClassLocal: "ApplicationComponent",
+    strictRelations: "warn",
+    dryRun: false,
+  });
+  if (!reclass.written) throw new Error("reclassify_entity did not write");
+  const after = await ctx.kc.getEntity(preservedId);
+  if (after.id !== preservedId) throw new Error("reclassify changed entity id");
+  if (after.iriLocal !== preservedIri) throw new Error("reclassify changed iriLocal");
+  const io = await ctx.model.listStatementsForSubject(preservedId, "instanceOf");
+  if (io.length !== 1) throw new Error(`expected exactly 1 active instanceOf, got ${io.length}`);
+  log("reclassify_entity", {
+    id: preservedId,
+    iriLocal: after.iriLocal,
+    instanceOfCount: io.length,
+    writeMode: reclass.writeMode,
+    from: reclass.fromClass,
+    to: reclass.toClass,
+  });
+
+  // Shaped reclassify: BusinessFunction → BusinessActor with required props
+  const actorConstraints = await ctx.model.getClassConstraints("BusinessActor");
+  const reqLocals = actorConstraints.requiredProperties.map((p) => p.propertyLocal);
+  if (!reqLocals.includes("actorKind") || !reqLocals.includes("organizationScope")) {
+    throw new Error(
+      `get_class_constraints(BusinessActor) missing actorKind/organizationScope: ${reqLocals.join(",")}`,
+    );
+  }
+  log("get_class_constraints BusinessActor", {
+    source: actorConstraints.source,
+    required: reqLocals,
+  });
+
+  const fnEnt = await ctx.model.createTypedElement({
+    packageCode: writePkg,
+    classLocal: "BusinessFunction",
+    name: `MCP Smoke ActorFn ${stamp}`,
+    iriLocal: `mcp-smoke-actor-fn-${stamp}`,
+    extraProps: { modelingDepth: "catalog" },
+  });
+  const actorDryMissing = await ctx.model.reclassifyEntity({
+    id: fnEnt.entity.id,
+    packageCode: writePkg,
+    newClassLocal: "BusinessActor",
+    dryRun: true,
+    strictRelations: "fail",
+  });
+  if (actorDryMissing.ok) {
+    throw new Error("expected dryRun without props to fail for BusinessActor");
+  }
+  if (
+    !actorDryMissing.missingRequiredProps.includes("actorKind") ||
+    !actorDryMissing.missingRequiredProps.includes("organizationScope")
+  ) {
+    throw new Error(
+      `expected missingRequiredProps actorKind+organizationScope, got ${JSON.stringify(actorDryMissing.missingRequiredProps)}`,
+    );
+  }
+  log("reclassify_entity Actor dryRun missing props", actorDryMissing.missingRequiredProps);
+
+  const actorProps = {
+    actorKind: "organizationalUnit",
+    organizationScope: "internal",
+  };
+  const actorDryOk = await ctx.model.reclassifyEntity({
+    id: fnEnt.entity.id,
+    packageCode: writePkg,
+    newClassLocal: "BusinessActor",
+    props: actorProps,
+    dryRun: true,
+    strictRelations: "fail",
+  });
+  if (!actorDryOk.ok) {
+    throw new Error(`Actor dryRun with props failed: ${actorDryOk.error}`);
+  }
+  const actorReclass = await ctx.model.reclassifyEntity({
+    id: fnEnt.entity.id,
+    packageCode: writePkg,
+    newClassLocal: "BusinessActor",
+    props: actorProps,
+    strictRelations: "warn",
+    dryRun: false,
+  });
+  if (!actorReclass.written) throw new Error("Actor reclassify did not write");
+  if (actorReclass.writeMode !== "revise" && actorReclass.writeMode !== "create") {
+    throw new Error(`unexpected writeMode ${actorReclass.writeMode}`);
+  }
+  const actorIo = await ctx.model.listStatementsForSubject(fnEnt.entity.id, "instanceOf");
+  if (actorIo.length !== 1) {
+    throw new Error(`Actor expected 1 instanceOf, got ${actorIo.length}`);
+  }
+  log("reclassify_entity BusinessActor", {
+    id: fnEnt.entity.id,
+    writeMode: actorReclass.writeMode,
+    instanceOfCount: actorIo.length,
+  });
+
+  const depr = await ctx.model.deprecateStatementById(stmt.statement.id, stmt.statement.revisionNo);
+  log("deprecate_statement", { statementId: stmt.statement.id, changeSetId: depr.id });
+
+  const csInfo = await ctx.kc.getChangeSet(cs);
+  log("get_changeset", { id: csInfo.id, status: csInfo.status, itemCount: csInfo.itemCount });
 
   const card = await ctx.cards.loadCard(created.entity.id);
   log("get_card", { profile: card.profile?.profileCode, slots: card.slots.length });

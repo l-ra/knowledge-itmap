@@ -1,9 +1,17 @@
 import { assertAllowed } from "./allowedRelationship";
+import { getClassConstraints } from "./classConstraints";
 import type { KcClient } from "./kcClient";
 import type { SchemaResolver } from "./schema";
 import type { ChangeSet, Entity, Statement, StatementValue } from "./types";
 import { stringFromValue, stringValuesEqual } from "./propertyEdit";
 import { mostSpecificClassLocal } from "./openExchange/typeMap";
+import {
+  GraphMutationService,
+  toStatementValue,
+  type ReclassifyEntityResult,
+  type StatementValueType,
+  type StrictRelationsMode,
+} from "./graphMutations";
 
 /** Structural action shape used by create/link (compatible with UI AddActionDef). */
 export interface ModelAddAction {
@@ -55,10 +63,14 @@ function slugify(name: string): string {
 }
 
 export class ModelService {
+  readonly graph: GraphMutationService;
+
   constructor(
     private kc: KcClient,
     private schema: SchemaResolver,
-  ) {}
+  ) {
+    this.graph = new GraphMutationService(kc, schema);
+  }
 
   /**
    * Create a typed ArchiMate element without an AddActionDef (MCP / simple API).
@@ -684,7 +696,338 @@ export class ModelService {
       return res.data;
     }
   }
+
+  // ── Graph mutation surface (MCP / agents) ───────────────────────────────
+
+  async createTypedStatement(opts: {
+    packageCode: string;
+    subjectId: string;
+    propertyLocal: string;
+    valueType: StatementValueType;
+    value: string | boolean;
+    upsert?: boolean;
+  }): Promise<{ statement: Statement; changeSet: ChangeSet }> {
+    const propIri =
+      opts.propertyLocal === "instanceOf"
+        ? this.schema.snapshot.instanceOfProperty
+        : this.schema.propertyIri(opts.propertyLocal);
+    const statementValue = toStatementValue(opts.valueType, opts.value);
+    const res = await this.kc.createStatement({
+      packageCode: opts.packageCode,
+      subject: opts.subjectId,
+      property: propIri,
+      value: statementValue,
+      upsert: opts.upsert,
+    });
+    return { statement: res.data, changeSet: res.changeSet };
+  }
+
+  async deprecateStatementById(
+    statementId: string,
+    expectedRevision?: number,
+  ): Promise<ChangeSet> {
+    const res = await this.kc.deprecateStatement(statementId, { expectedRevision });
+    return res.changeSet;
+  }
+
+  async listStatementsForSubject(
+    subjectId: string,
+    propertyLocal?: string,
+  ): Promise<Statement[]> {
+    if (propertyLocal) {
+      const propIri =
+        propertyLocal === "instanceOf"
+          ? this.schema.snapshot.instanceOfProperty
+          : this.schema.propertyIri(propertyLocal);
+      const page = await this.kc.getStatements(subjectId, propIri);
+      return page.items || [];
+    }
+    // Unfiltered: merge model typing property when KC omits it from the default list.
+    const page = await this.kc.getStatements(subjectId);
+    const items = [...(page.items || [])];
+    const ioProp = this.schema.snapshot.instanceOfProperty;
+    const hasIo = items.some((s) => s.property === ioProp);
+    if (!hasIo) {
+      const ioPage = await this.kc.getStatements(subjectId, ioProp);
+      items.push(...(ioPage.items || []));
+    }
+    return items;
+  }
+
+  async clearPropertyStatements(opts: {
+    subjectId: string;
+    propertyLocal: string;
+  }): Promise<{ deprecated: number; changeSetIds: string[] }> {
+    const propIri =
+      opts.propertyLocal === "instanceOf"
+        ? this.schema.snapshot.instanceOfProperty
+        : this.schema.propertyIri(opts.propertyLocal);
+    const page = await this.kc.getStatements(opts.subjectId, propIri);
+    const changeSetIds: string[] = [];
+    for (const st of page.items || []) {
+      const cs = await this.deprecatePropertyStatement(st);
+      changeSetIds.push(cs.id);
+    }
+    return { deprecated: page.items?.length || 0, changeSetIds };
+  }
+
+  async reclassifyEntity(opts: {
+    id: string;
+    packageCode: string;
+    newClassLocal: string;
+    props?: Record<string, string>;
+    strictRelations?: StrictRelationsMode;
+    dryRun?: boolean;
+  }): Promise<ReclassifyEntityResult> {
+    return this.graph.reclassifyEntity(opts);
+  }
+
+  async reclassifyEntities(opts: {
+    ids?: string[];
+    packageCode: string;
+    fromClassLocal?: string;
+    newClassLocal: string;
+    props?: Record<string, string>;
+    strictRelations?: StrictRelationsMode;
+    dryRun?: boolean;
+  }): Promise<{ results: ReclassifyEntityResult[]; writtenCount: number }> {
+    return this.graph.reclassifyEntities(opts);
+  }
+
+  async getClassConstraints(classLocal: string) {
+    return getClassConstraints(this.kc, this.schema, classLocal);
+  }
+
+  async updateRelationship(opts: {
+    id: string;
+    packageCode: string;
+    sourceId?: string;
+    targetId?: string;
+    typeLocal?: string;
+  }): Promise<{ entity: Entity; changeSet: ChangeSet; iriLocal?: string }> {
+    return this.graph.updateRelationship(opts);
+  }
+
+  async retargetViewNodes(opts: {
+    packageCode: string;
+    fromElementId: string;
+    toElementId: string;
+    viewId?: string;
+  }): Promise<{ updated: number; nodeIds: string[]; changeSet: ChangeSet }> {
+    return this.graph.retargetViewNodes(opts);
+  }
+
+  /**
+   * High-level ops append into the active ChangeSet (soft limit enforced by caller).
+   */
+  async applyGraphOperations(
+    packageCode: string,
+    operations: GraphApplyOperation[],
+  ): Promise<{ applied: number; results: Array<Record<string, unknown>>; changeSetId?: string }> {
+    const results: Array<Record<string, unknown>> = [];
+    let changeSetId: string | undefined;
+
+    const { changeSet } = await this.kc.runLogicalChangeSet(
+      { operationType: "applyGraphOperations", comment: `${operations.length} ops` },
+      async () => {
+        for (let i = 0; i < operations.length; i++) {
+          const op = operations[i];
+          const tag = { index: i, op: op.op };
+          switch (op.op) {
+            case "createEntity": {
+              const created = await this.createTypedElement({
+                packageCode: op.packageCode || packageCode,
+                classLocal: op.classLocal,
+                name: op.name,
+                descriptions: op.description
+                  ? { en: op.description, cs: op.description }
+                  : op.descriptions,
+                iriLocal: op.iriLocal,
+                extraProps: op.props,
+              });
+              results.push({
+                ...tag,
+                entityId: created.entity.id,
+                iriLocal: created.entity.iriLocal,
+              });
+              changeSetId = created.changeSet.id;
+              break;
+            }
+            case "updateEntity": {
+              const cs = await this.saveEntityBasics({
+                id: op.id,
+                labels: op.labels,
+                descriptions: op.descriptions,
+                revision: op.expectedRevision,
+              });
+              results.push({ ...tag, changeSetId: cs?.id ?? null, noop: cs === null });
+              if (cs) changeSetId = cs.id;
+              break;
+            }
+            case "deprecateEntity": {
+              const res = await this.kc.deprecateEntity(op.id, {
+                expectedRevision: op.expectedRevision,
+              });
+              results.push({ ...tag, entityId: res.data.id, changeSetId: res.changeSet.id });
+              changeSetId = res.changeSet.id;
+              break;
+            }
+            case "createStatement": {
+              const res = await this.createTypedStatement({
+                packageCode: op.packageCode || packageCode,
+                subjectId: op.subjectId,
+                propertyLocal: op.propertyLocal,
+                valueType: op.valueType,
+                value: op.value,
+                upsert: op.upsert,
+              });
+              results.push({
+                ...tag,
+                statementId: res.statement.id,
+                changeSetId: res.changeSet.id,
+              });
+              changeSetId = res.changeSet.id;
+              break;
+            }
+            case "deprecateStatement": {
+              const cs = await this.deprecateStatementById(op.statementId, op.expectedRevision);
+              results.push({ ...tag, changeSetId: cs.id });
+              changeSetId = cs.id;
+              break;
+            }
+            case "createRelationship": {
+              const entity = await this.createRelationship({
+                packageCode: op.packageCode || packageCode,
+                typeLocal: op.typeLocal,
+                sourceId: op.sourceId,
+                targetId: op.targetId,
+                props: op.props,
+              });
+              results.push({ ...tag, relationshipId: entity.id });
+              break;
+            }
+            case "setProperty": {
+              const existingPage = await this.kc.getStatements(
+                op.id,
+                this.schema.propertyIri(op.propertyLocal),
+              );
+              const cs = await this.replaceStringProperty({
+                packageCode: op.packageCode || packageCode,
+                subject: op.id,
+                propertyLocal: op.propertyLocal,
+                newValue: op.value,
+                existingStatement: existingPage.items[0],
+              });
+              results.push({ ...tag, changeSetId: cs?.id ?? null, noop: cs === null });
+              if (cs) changeSetId = cs.id;
+              break;
+            }
+            case "clearProperty": {
+              const cleared = await this.clearPropertyStatements({
+                subjectId: op.id,
+                propertyLocal: op.propertyLocal,
+              });
+              results.push({ ...tag, deprecated: cleared.deprecated });
+              break;
+            }
+            case "reclassifyEntity": {
+              const r = await this.reclassifyEntity({
+                id: op.id,
+                packageCode: op.packageCode || packageCode,
+                newClassLocal: op.newClassLocal,
+                props: op.props,
+                strictRelations: op.strictRelations,
+                dryRun: op.dryRun,
+              });
+              results.push({ ...tag, ...r });
+              if (r.changeSetId) changeSetId = r.changeSetId;
+              break;
+            }
+            default: {
+              throw new Error(`Unknown apply op: ${(op as { op: string }).op}`);
+            }
+          }
+        }
+      },
+    );
+
+    return {
+      applied: results.length,
+      results,
+      changeSetId: changeSetId || changeSet.id,
+    };
+  }
 }
+
+/** Soft limit for MCP apply_operations. */
+export const APPLY_OPERATIONS_SOFT_LIMIT = 300;
+
+export type GraphApplyOperation =
+  | {
+      op: "createEntity";
+      packageCode?: string;
+      classLocal: string;
+      name: string;
+      description?: string;
+      descriptions?: Record<string, string>;
+      iriLocal?: string;
+      props?: Record<string, string>;
+    }
+  | {
+      op: "updateEntity";
+      id: string;
+      labels?: Record<string, string>;
+      descriptions?: Record<string, string> | null;
+      expectedRevision?: number;
+    }
+  | {
+      op: "deprecateEntity";
+      id: string;
+      expectedRevision?: number;
+    }
+  | {
+      op: "createStatement";
+      packageCode?: string;
+      subjectId: string;
+      propertyLocal: string;
+      valueType: StatementValueType;
+      value: string | boolean;
+      upsert?: boolean;
+    }
+  | {
+      op: "deprecateStatement";
+      statementId: string;
+      expectedRevision?: number;
+    }
+  | {
+      op: "createRelationship";
+      packageCode?: string;
+      typeLocal: string;
+      sourceId: string;
+      targetId: string;
+      props?: Record<string, string>;
+    }
+  | {
+      op: "setProperty";
+      packageCode?: string;
+      id: string;
+      propertyLocal: string;
+      value: string;
+    }
+  | {
+      op: "clearProperty";
+      id: string;
+      propertyLocal: string;
+    }
+  | {
+      op: "reclassifyEntity";
+      packageCode?: string;
+      id: string;
+      newClassLocal: string;
+      props?: Record<string, string>;
+      strictRelations?: StrictRelationsMode;
+      dryRun?: boolean;
+    };
 
 type PackageLike = { code: string; labels?: Record<string, string>; rootEntityId?: string };
 

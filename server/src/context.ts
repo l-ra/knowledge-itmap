@@ -154,9 +154,26 @@ export class AppContext {
     const existing =
       this.session.activeChangeSetId || this.kc.getManualChangeSetId() || null;
     if (existing) {
-      this.kc.setManualChangeSet(existing);
-      this.session.activeChangeSetId = existing;
-      return existing;
+      try {
+        const cs = await this.kc.getChangeSet(existing);
+        if (cs.status === "open") {
+          this.kc.setManualChangeSet(existing);
+          this.session.activeChangeSetId = existing;
+          return existing;
+        }
+        this.clearActiveChangeSet();
+        throw new Error(
+          `Active ChangeSet ${existing} is ${cs.status || "not open"} — session cleared. Call open_changeset and retry.`,
+        );
+      } catch (e) {
+        this.clearActiveChangeSet();
+        if (e instanceof Error && e.message.includes("session cleared")) throw e;
+        throw new Error(
+          `Active ChangeSet ${existing} is missing or unreachable — session cleared. Call open_changeset and retry. (${
+            e instanceof Error ? e.message : String(e)
+          })`,
+        );
+      }
     }
 
     const actor = this.config.actor ? ` actor=${this.config.actor}` : "";

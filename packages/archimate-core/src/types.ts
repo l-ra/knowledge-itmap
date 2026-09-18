@@ -113,14 +113,27 @@ export interface ChangeSet {
   claims?: ChangeSetClaim[];
 }
 
+export type ValidationFinding = {
+  severity: string;
+  code: string;
+  message: string;
+  propertyId?: string;
+  classId?: string;
+  shapeCode?: string;
+  entityId?: string;
+  statementId?: string;
+};
+
+export type ValidationPayload = {
+  entityId?: string;
+  findings: ValidationFinding[];
+  summary: { errors: number; warnings: number; infos?: number };
+};
+
 export interface WriteResponse<T> {
   data: T;
   changeSet: ChangeSet;
-  validation?: {
-    entityId?: string;
-    findings: Array<{ severity: string; code: string; message: string }>;
-    summary: { errors: number; warnings: number };
-  };
+  validation?: ValidationPayload;
 }
 
 /** Batch write op (POST /v1/changesets). */
@@ -142,6 +155,11 @@ export type ChangeOperation =
       expectedRevision?: number;
     }
   | {
+      op: "deprecateEntity";
+      entity: string;
+      expectedRevision?: number;
+    }
+  | {
       op: "createStatement";
       clientKey?: string;
       packageCode: string;
@@ -150,6 +168,17 @@ export type ChangeOperation =
       value: StatementValue;
       upsert?: boolean;
       qualifiers?: Array<{ property: string; value: StatementValue }>;
+    }
+  | {
+      op: "reviseStatement";
+      statement: string;
+      value?: StatementValue;
+      expectedRevision?: number;
+    }
+  | {
+      op: "deprecateStatement";
+      statement: string;
+      expectedRevision?: number;
     }
   | {
       op: "setEntityIRIAliases";

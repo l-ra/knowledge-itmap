@@ -1,5 +1,5 @@
 export type * from "./types";
-export { KcError, formatAppError, logAppError } from "./errors";
+export { KcError, formatAppError, logAppError, structuredAppError, extractValidationPayload, validationFromKcError } from "./errors";
 export { KcClient, type KcClientOptions } from "./kcClient";
 export type { AuthConfig } from "./types";
 export {
@@ -39,11 +39,32 @@ export { assertAllowed, type AllowedRelationshipSchema } from "./allowedRelation
 export {
   ModelService,
   valueToDisplay,
+  APPLY_OPERATIONS_SOFT_LIMIT,
   type CreateElementInput,
   type LinkElementInput,
   type CreateResult,
   type ModelAddAction,
+  type GraphApplyOperation,
 } from "./modelService";
+export {
+  GraphMutationService,
+  projectRelationImpact,
+  toStatementValue,
+  resolveInstanceOfWriteMode,
+  type StrictRelationsMode,
+  type ReclassifyWriteMode,
+  type IncidentRelationship,
+  type InvalidRelationship,
+  type ReclassifyEntityResult,
+  type StatementValueType,
+} from "./graphMutations";
+export {
+  getClassConstraints,
+  missingRequiredPropLocals,
+  FALLBACK_REQUIRED_BY_CLASS,
+  type ClassConstraints,
+  type ClassConstraintProperty,
+} from "./classConstraints";
 export * from "./propertyEdit";
 export {
   ViewService,

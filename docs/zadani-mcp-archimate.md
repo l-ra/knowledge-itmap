@@ -138,7 +138,7 @@ MCP clients  ──►  server/ ──/v1──┘
 
 | Tool | Popis |
 |------|--------|
-| `create_element` | labels/descriptions + `instanceOf` + props; odvozený vztah pokud context |
+| `create_entity` | labels/descriptions + `instanceOf` + props |
 | `create_relationship` | typ + source + target; **reject pokud `!isAllowed`** |
 | `set_property` / `clear_property` | dle property rules |
 | `deprecate_entity` | s ohledem na inbound refs |
@@ -293,3 +293,10 @@ Session overlay: `lang`, `writeMode`, `workingPackage` (among approved). Write r
 | 1 | Live acceptance smoke | `npm run mcp:smoke` (`server/src/smoke.ts`) |
 | 2 | Bundlovaný `dist`/`bin` bez tsx | `npm run mcp:build` → `server/dist/index.js`, bin `itmap-mcp` |
 | 3 | OE file-path tools | `path` na import/export + `ITMAP_MCP_FILE_ROOTS` sandbox |
+| 4 | Mutace grafu / statements / reclassify se zachováním id | **Implemented** — [`zadani-mcp-graph-mutations.md`](./zadani-mcp-graph-mutations.md) |
+
+## Follow-upy (planned)
+
+| # | Položka | Stav |
+|---|---------|------|
+| 5 | Shape-aware reclassify (revise, props, constraints, peer projection) | **Planned** — [`zadani-mcp-reclassify-shape.md`](./zadani-mcp-reclassify-shape.md) |
