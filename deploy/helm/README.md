@@ -10,13 +10,9 @@ Install into the same namespace as Knowledge Core (release name `kc`).
 ## Quick install
 
 ```bash
-# Images from GHCR (or build locally — see Makefile)
+# Images from GHCR — tags default to Chart.appVersion (UI + MCP)
 helm upgrade --install itmap deploy/helm/knowledge-itmap \
   --namespace knowledge-core \
-  --set image.repository=ghcr.io/l-ra/knowledge-itmap \
-  --set image.tag=latest \
-  --set mcpImage.repository=ghcr.io/l-ra/knowledge-itmap-mcp \
-  --set mcpImage.tag=latest \
   --set knowledgeCore.url=http://kc-knowledge-core:8080 \
   --set mcp.writePackages=org-demo \
   --set mcp.defaultPackage=org-demo
@@ -55,11 +51,13 @@ JWT `aud` must match KC’s OIDC audience/client_id so KC accepts forwarded toke
 | `mcp.authMode` | `forward` | Use `service` + secret for automation |
 | `mcp.oauth.enabled` | `false` | PRM + 401 WWW-Authenticate |
 | `image.repository` | `ghcr.io/l-ra/knowledge-itmap` | UI |
+| `image.tag` | `""` → Chart.appVersion | UI image tag |
 | `mcpImage.repository` | `ghcr.io/l-ra/knowledge-itmap-mcp` | MCP |
+| `mcpImage.tag` | `""` → Chart.appVersion | MCP image tag |
 
 ## CI / release
 
-Same pattern as knowledge-core:
+Same pattern as knowledge-core — one build version shared by images, chart `version`, and `appVersion`:
 
-- Push `main` → images `latest` + SHA, chart `0.0.0-dev.<run>`
+- Push `main` → UI + MCP images and chart all `0.0.0-dev.<run>` (+ `latest` alias on images)
 - Tag `vX.Y.Z` → SemVer images + chart OCI `oci://ghcr.io/l-ra/charts/knowledge-itmap`

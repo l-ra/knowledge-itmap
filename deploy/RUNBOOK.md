@@ -10,8 +10,6 @@
 ```bash
 helm upgrade --install itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version X.Y.Z \
   --namespace knowledge-core \
-  --set image.tag=X.Y.Z \
-  --set mcpImage.tag=X.Y.Z \
   --set knowledgeCore.url=http://kc-knowledge-core:8080 \
   --set mcp.writePackages=org-demo \
   --set mcp.defaultPackage=org-demo
@@ -52,9 +50,7 @@ MCP klienti s OAuth podporou použijí URL `https://<itmap-host>/mcp`.
 ```bash
 helm upgrade itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version X.Y.Z \
   --namespace knowledge-core \
-  --reuse-values \
-  --set image.tag=X.Y.Z \
-  --set mcpImage.tag=X.Y.Z
+  --reuse-values
 ```
 
 ## Troubleshooting

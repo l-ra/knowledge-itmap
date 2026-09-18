@@ -4,11 +4,13 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/l-ra/knowledge-itmap
+  # Empty → Chart.appVersion (set by CI/release via set-chart-version.sh)
   tag: ""
   pullPolicy: IfNotPresent
 
 mcpImage:
   repository: ghcr.io/l-ra/knowledge-itmap-mcp
+  # Empty → Chart.appVersion (same build version as UI)
   tag: ""
   pullPolicy: IfNotPresent
 

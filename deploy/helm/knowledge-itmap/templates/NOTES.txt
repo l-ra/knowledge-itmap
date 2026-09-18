@@ -1,11 +1,9 @@
 1. Install Knowledge Core (`kc`) in namespace `knowledge-core` first.
 2. Add Pocket ID redirect URI: `https://<host>/callback` (same OIDC client as KC).
-3. Install:
+3. Install (image tags default to Chart.appVersion):
 
   helm upgrade --install itmap oci://ghcr.io/l-ra/charts/knowledge-itmap \
     --namespace knowledge-core \
-    --set image.tag={{ .Chart.AppVersion }} \
-    --set mcpImage.tag={{ .Chart.AppVersion }} \
     --set knowledgeCore.url=http://kc-knowledge-core:8080
 
 4. UI: http://{{ include "knowledge-itmap.fullname" . }}:{{ .Values.service.port }}
