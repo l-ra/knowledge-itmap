@@ -16,7 +16,7 @@ export function mcpResourceUrl(publicUrl: string): string {
 
 export function buildProtectedResourceMetadata(cfg: McpServerConfig): ProtectedResourceMetadata | null {
   if (!cfg.oauthEnabled || !cfg.oauthIssuer || !cfg.publicUrl) return null;
-  const scopes = cfg.oauthScopes.length > 0 ? cfg.oauthScopes : ["openid", "profile", "email"];
+  const scopes = cfg.oauthScopes.length > 0 ? cfg.oauthScopes : ["openid", "profile", "email", "groups"];
   return {
     resource: mcpResourceUrl(cfg.publicUrl),
     authorization_servers: [cfg.oauthIssuer.replace(/\/+$/, "")],
@@ -28,7 +28,7 @@ export function buildProtectedResourceMetadata(cfg: McpServerConfig): ProtectedR
 export function wwwAuthenticateHeader(cfg: McpServerConfig): string {
   const publicBase = (cfg.publicUrl || "").replace(/\/+$/, "") || "http://localhost";
   const metadataUrl = `${publicBase}/.well-known/oauth-protected-resource/mcp`;
-  const scopes = cfg.oauthScopes.length > 0 ? cfg.oauthScopes.join(" ") : "openid profile email";
+  const scopes = cfg.oauthScopes.length > 0 ? cfg.oauthScopes.join(" ") : "openid profile email groups";
   return `Bearer resource_metadata="${metadataUrl}", scope="${scopes}"`;
 }
 

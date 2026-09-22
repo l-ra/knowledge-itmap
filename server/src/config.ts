@@ -158,7 +158,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
   const oauthIssuer = env.ITMAP_MCP_OIDC_ISSUER?.trim() || "";
   const oauthScopes = parsePackageList(env.ITMAP_MCP_OAUTH_SCOPES).length
     ? parsePackageList(env.ITMAP_MCP_OAUTH_SCOPES)
-    : ["openid", "profile", "email"];
+    : ["openid", "profile", "email", "groups"];
 
   if (oauthEnabled) {
     if (!publicUrl) {

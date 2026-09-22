@@ -103,7 +103,7 @@ Smoke covers: healthz, schema, primer, write-gate without approval, approve, lis
 | `ITMAP_MCP_OAUTH_ENABLED` | | `false` | HTTP: RFC 9728 PRM + `401` `WWW-Authenticate` |
 | `ITMAP_MCP_PUBLIC_URL` | oauth* | — | Public base (e.g. `https://itmap.example.com`) |
 | `ITMAP_MCP_OIDC_ISSUER` | oauth* | — | Pocket ID issuer (same as KC) |
-| `ITMAP_MCP_OAUTH_SCOPES` | | `openid,profile,email` | CSV scopes in PRM |
+| `ITMAP_MCP_OAUTH_SCOPES` | | `openid,profile,email,groups` | CSV scopes in PRM |
 
 \* Provide `WRITE_PACKAGES` **or** legacy `ORG_PACKAGE`. With `ITMAP_KC_AUTH_MODE=dev`, token may be empty. OAuth\* required when `ITMAP_MCP_OAUTH_ENABLED=true`.
 

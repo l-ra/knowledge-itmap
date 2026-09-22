@@ -5,6 +5,8 @@ export type UiConfig = {
   oidcIssuer: string;
   oidcClientId: string;
   oidcAudience: string;
+  /** Space-separated OAuth scopes from KC `/v1/ui/config` (`KC_OIDC_SCOPES`). */
+  oidcScopes?: string;
   bootstrapAdminSubject?: string;
   uiBasePath?: string;
   oidcRedirectPath?: string;
@@ -12,6 +14,7 @@ export type UiConfig = {
 
 const PKCE_VERIFIER_KEY = "itmap.pkce.verifier";
 const OIDC_STATE_KEY = "itmap.oidc.state";
+const DEFAULT_OIDC_SCOPES = "openid profile email groups";
 
 /** ITMap callback path (not KC's /ui/callback). */
 export const ITMAP_OIDC_REDIRECT_PATH = "/callback";
@@ -64,7 +67,7 @@ export async function startOidcLogin(cfg: UiConfig): Promise<void> {
   const params = new URLSearchParams({
     client_id: oidcClientId(cfg),
     response_type: "code",
-    scope: "openid profile email",
+    scope: (cfg.oidcScopes || "").trim() || DEFAULT_OIDC_SCOPES,
     redirect_uri: oidcRedirectUri(),
     state,
     code_challenge: challenge,

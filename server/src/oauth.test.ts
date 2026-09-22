@@ -27,7 +27,7 @@ function baseCfg(over: Partial<McpServerConfig> = {}): McpServerConfig {
     oauthEnabled: true,
     publicUrl: "https://itmap.example.com",
     oauthIssuer: "https://id.example.com",
-    oauthScopes: ["openid", "profile", "email"],
+    oauthScopes: ["openid", "profile", "email", "groups"],
     ...over,
   };
 }
@@ -43,7 +43,7 @@ describe("oauth RS helpers", () => {
     expect(prm).toEqual({
       resource: "https://itmap.example.com/mcp",
       authorization_servers: ["https://id.example.com"],
-      scopes_supported: ["openid", "profile", "email"],
+      scopes_supported: ["openid", "profile", "email", "groups"],
       bearer_methods_supported: ["header"],
     });
   });

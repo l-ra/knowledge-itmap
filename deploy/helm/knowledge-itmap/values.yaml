@@ -95,7 +95,7 @@ mcp:
     publicUrl: ""
     # Pocket ID issuer (same as KC OIDC issuer)
     issuer: ""
-    scopes: "openid,profile,email"
+    scopes: "openid,profile,email,groups"
 
 extraEnv: []
 mcpExtraEnv: []
