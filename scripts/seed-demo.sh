@@ -74,9 +74,7 @@ curl -sf "${auth[@]}" -H "Idempotency-Key: itmap-org-demo" \
     "labels":{"en":"Org Demo","cs":"Org Demo"},
     "descriptions":{"en":"IT Map demo organization package","cs":"Demo package organizace IT Map"},
     "dependencies":[
-      {"dependsOnCode":"archimate-lite","versionRange":"^3.1.0"},
-      {"dependsOnCode":"archimate-ui-traversal","versionRange":"^1.0.0"},
-      {"dependsOnCode":"archimate-ui-cards","versionRange":"^1.1.0"}
+      {"dependsOnCode":"archimate-lite","versionRange":"^3.1.0"}
     ]
   }' "$KC_URL/v1/packages" >/dev/null 2>&1 || true
 

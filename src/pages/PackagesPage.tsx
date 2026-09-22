@@ -205,6 +205,27 @@ export function PackagesPage() {
     }
   }
 
+  async function reconcileDeps(code: string) {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await getKc().reconcilePackageDependencies(code);
+      if (res.changeSet) pushChangeSet(res.changeSet);
+      const r = res.reconcile;
+      const removed = (r?.removed ?? []).map((d) => d.dependsOnCode).join(", ") || "—";
+      const kept = (r?.kept ?? []).map((d) => `${d.dependsOnCode}@${d.versionRange}`).join(", ") || "—";
+      const added = (r?.added ?? []).map((d) => `${d.dependsOnCode}@${d.versionRange}`).join(", ") || "—";
+      setInfo(`Závislosti ${code}: kept ${kept}; added ${added}; removed ${removed}`);
+      setDetail(res.data);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="page">
       <h2>Packages &amp; Releases</h2>
@@ -289,8 +310,8 @@ export function PackagesPage() {
           Vytvořit / použít org package
         </button>
         <p className="empty" style={{ textAlign: "left" }}>
-          Závislost: <code>archimate-lite ^3.0.0</code> (pro Open Exchange doporučeno{" "}
-          <code>3.2.1+</code>) + <code>archimate-ui-traversal ^1.0.0</code>
+          Závislost při vytvoření: <code>archimate-lite ^3.0.0</code> (UI balíčky se nepřidávají —
+          po naplnění modelu můžete závislosti vyčistit podle obsahu).
         </p>
       </section>
 
@@ -457,6 +478,24 @@ export function PackagesPage() {
               iriBase: <code className="mono">{detail.iriBase}</code>
             </p>
           )}
+          {detail.dependencies && detail.dependencies.length > 0 && (
+            <p className="empty" style={{ textAlign: "left" }}>
+              Závislosti:{" "}
+              {detail.dependencies.map((d) => (
+                <code key={d.dependsOnCode} style={{ marginRight: "0.5rem" }}>
+                  {d.dependsOnCode} {d.versionRange}
+                </code>
+              ))}
+            </p>
+          )}
+          <button
+            type="button"
+            className="toolbar-btn"
+            disabled={busy}
+            onClick={() => void reconcileDeps(detail.code)}
+          >
+            Vyčistit závislosti podle obsahu
+          </button>
           {releases.length > 0 && (
             <>
               <h4>Releases</h4>

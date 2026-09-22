@@ -430,6 +430,41 @@ export class KcClient {
     });
   }
 
+  setPackageDependencies(
+    code: string,
+    dependencies: Array<{ dependsOnCode: string; versionRange: string }>,
+  ): Promise<WriteResponse<PackageInfo>> {
+    return this.request(
+      "PUT",
+      `/v1/packages/${encodeURIComponent(code)}/dependencies`,
+      { dependencies },
+      { idempotencyKey: `pkg-deps-${code}-${Date.now()}` },
+    );
+  }
+
+  reconcilePackageDependencies(
+    code: string,
+    opts?: { dryRun?: boolean },
+  ): Promise<
+    WriteResponse<PackageInfo> & {
+      reconcile?: {
+        referenced?: string[];
+        added?: Array<{ dependsOnCode: string; versionRange: string }>;
+        removed?: Array<{ dependsOnCode: string; versionRange: string }>;
+        kept?: Array<{ dependsOnCode: string; versionRange: string }>;
+        unresolved?: string[];
+        dryRun?: boolean;
+      };
+    }
+  > {
+    return this.request(
+      "POST",
+      `/v1/packages/${encodeURIComponent(code)}/dependencies/reconcile`,
+      { dryRun: opts?.dryRun ?? false },
+      { idempotencyKey: `pkg-deps-reconcile-${code}-${Date.now()}` },
+    );
+  }
+
   listReleases(code: string): Promise<ListResponse<PackageRelease>> {
     return this.request("GET", `/v1/packages/${encodeURIComponent(code)}/releases`);
   }

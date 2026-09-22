@@ -690,7 +690,6 @@ export class ModelService {
         descriptions: description ? { en: description, cs: description } : undefined,
         dependencies: [
           { dependsOnCode: "archimate-lite", versionRange: "^3.0.0" },
-          { dependsOnCode: "archimate-ui-traversal", versionRange: "^1.0.0" },
         ],
       });
       return res.data;
