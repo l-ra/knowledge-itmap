@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AUTH_CHANGE_EVENT,
   getKc,
   loadAuth,
   loadOrgPackage,
@@ -142,6 +143,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [navigationProfile, setNavigationProfile] = useState<ResolvedNavigationProfile | null>(null);
   const [navigationLoading, setNavigationLoading] = useState(false);
   const [templateCode, setTemplateCodeState] = useState(loadStoredTemplateCode);
+
+  // Soft auth updates from OIDC refresh / session expiry (outside setAuth).
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const next = (e as CustomEvent<AuthConfig>).detail ?? loadAuth();
+      setAuthState(next);
+    };
+    window.addEventListener(AUTH_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(AUTH_CHANGE_EVENT, onChange);
+  }, []);
 
   const authKey = authQueryKey(auth);
   const bootstrapKey = queryKeys.bootstrap(authKey);

@@ -1,10 +1,18 @@
 export type { AuthConfig } from "@itmap/archimate-core";
 export { KcClient, KcError, type KcClientOptions, MemoryReadCache } from "@itmap/archimate-core";
 import { KcClient, type AuthConfig } from "@itmap/archimate-core";
+import {
+  isOidcAccessExpired,
+  loadUiConfig,
+  mergeOidcTokens,
+  refreshOidcTokens,
+} from "@/auth/oidc";
 import { getBrowserReadCache } from "./readCache";
 
 const STORAGE_KEY = "itmap.kc.auth";
 const ACTIVE_CS_KEY = "itmap.activeChangeSet";
+/** Same-tab notify when auth is written outside React (refresh / expiry). */
+export const AUTH_CHANGE_EVENT = "itmap.auth-change";
 
 export type StoredActiveChangeSet = {
   id: string;
@@ -33,6 +41,22 @@ export function loadAuth(): AuthConfig {
 
 export function saveAuth(auth: AuthConfig): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT, { detail: auth }));
+  }
+}
+
+/** Clear OIDC tokens (and refresh fields); keep a non-authenticated stub for storage. */
+export function clearOidcAuth(fallbackMode: AuthConfig["mode"] = "bootstrap"): AuthConfig {
+  const cleared: AuthConfig = {
+    mode: fallbackMode === "oidc" ? "bootstrap" : fallbackMode,
+    token: "",
+    subject: "itmap-dev",
+    roles: "admin,editor",
+  };
+  if (singleton) singleton.replaceAuth(cleared);
+  else saveAuth(cleared);
+  return cleared;
 }
 
 export function loadOrgPackage(): string {
@@ -73,13 +97,57 @@ function readCacheTtlFromEnv(): { staleAfterMs?: number; maxAgeMs?: number } {
   };
 }
 
-/** Browser KcClient: localStorage auth + Vite base URL + cross-tab read cache. */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function runOidcRefresh(force: boolean): Promise<boolean> {
+  const auth = singleton?.getAuth() ?? loadAuth();
+  if (auth.mode !== "oidc") return false;
+  if (!force && !isOidcAccessExpired(auth)) return true;
+  if (!auth.refreshToken) {
+    if (typeof auth.expiresAt === "number" && Date.now() >= auth.expiresAt) {
+      clearOidcAuth();
+      return false;
+    }
+    return !force;
+  }
+
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const current = singleton?.getAuth() ?? loadAuth();
+      if (!current.refreshToken) {
+        clearOidcAuth();
+        return false;
+      }
+      const cfg = await loadUiConfig(browserBaseUrl());
+      const tokens = await refreshOidcTokens(cfg, current.refreshToken);
+      const next = mergeOidcTokens(current, tokens);
+      // Soft update: same subject — keep read cache; persist + notify React.
+      singleton?.replaceAuth(next);
+      return true;
+    } catch {
+      clearOidcAuth();
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+}
+
+/** Browser KcClient: localStorage auth + Vite base URL + cross-tab read cache + OIDC refresh. */
 export function createBrowserKcClient(auth: AuthConfig = loadAuth()): KcClient {
   const ttl = readCacheTtlFromEnv();
   return new KcClient({
     baseUrl: browserBaseUrl(),
     auth,
     onAuthChange: saveAuth,
+    beforeRequest: async () => {
+      await runOidcRefresh(false);
+    },
+    onUnauthorized: async () => runOidcRefresh(true),
     readCache: getBrowserReadCache(),
     readCacheStaleAfterMs: ttl.staleAfterMs,
     readCacheMaxAgeMs: ttl.maxAgeMs,
@@ -96,4 +164,5 @@ export function getKc(): KcClient {
 /** Test helper — reset singleton between tests. */
 export function resetKcForTests(): void {
   singleton = null;
+  refreshInFlight = null;
 }

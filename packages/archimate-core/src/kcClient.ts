@@ -40,8 +40,15 @@ export type KcClientOptions = {
   /** KC API base URL (empty = same origin / relative). */
   baseUrl?: string;
   auth?: AuthConfig;
-  /** Called when setAuth updates credentials (e.g. persist). */
+  /** Called when setAuth / replaceAuth updates credentials (e.g. persist). */
   onAuthChange?: (auth: AuthConfig) => void;
+  /** Proactive auth refresh before each request (e.g. OIDC access token skew). */
+  beforeRequest?: () => Promise<void>;
+  /**
+   * Called once on HTTP 401. Return true to retry the request with updated auth.
+   * Should perform a forced token refresh when possible.
+   */
+  onUnauthorized?: () => Promise<boolean>;
   /**
    * Default X-Validation-Mode for graph writes (create entity/statement).
    * MCP agents should use `strict`; IT Map UI keeps `relaxed`.
@@ -112,6 +119,8 @@ export class KcClient {
   private baseUrl: string;
   private auth: AuthConfig;
   private onAuthChange?: (auth: AuthConfig) => void;
+  private beforeRequest?: () => Promise<void>;
+  private onUnauthorized?: () => Promise<boolean>;
   private defaultWriteValidation: "relaxed" | "strict" | "off";
   private manualChangeSetId: string | null = null;
   private autoChangeSetId: string | null = null;
@@ -128,6 +137,8 @@ export class KcClient {
     this.baseUrl = opts.baseUrl ?? "";
     this.auth = opts.auth ?? { ...DEFAULT_AUTH };
     this.onAuthChange = opts.onAuthChange;
+    this.beforeRequest = opts.beforeRequest;
+    this.onUnauthorized = opts.onUnauthorized;
     this.defaultWriteValidation = opts.defaultWriteValidation ?? "relaxed";
     this.readCache = opts.readCache ?? null;
     this.readCacheStaleAfterMs = opts.readCacheStaleAfterMs ?? DEFAULT_READ_CACHE_STALE_AFTER_MS;
@@ -163,6 +174,15 @@ export class KcClient {
   setAuth(auth: AuthConfig): void {
     this.auth = auth;
     this.clearReadCache();
+    this.onAuthChange?.(auth);
+  }
+
+  /**
+   * Update credentials without clearing the read cache (e.g. OIDC token refresh,
+   * same subject). Still persists via onAuthChange.
+   */
+  replaceAuth(auth: AuthConfig): void {
+    this.auth = auth;
     this.onAuthChange?.(auth);
   }
 
@@ -271,8 +291,12 @@ export class KcClient {
     method: string,
     path: string,
     body?: unknown,
-    opts?: RequestOpts,
+    opts?: RequestOpts & { retried?: boolean },
   ): Promise<T> {
+    if (this.beforeRequest) {
+      await this.beforeRequest();
+    }
+
     const headers: Record<string, string> = {
       Accept: "application/json",
       ...authHeaders(this.auth),
@@ -316,6 +340,12 @@ export class KcClient {
     }
 
     if (!res.ok) {
+      if (res.status === 401 && !opts?.retried && this.onUnauthorized) {
+        const retry = await this.onUnauthorized();
+        if (retry) {
+          return this.request(method, path, body, { ...opts, retried: true });
+        }
+      }
       const err = json as {
         error?: { code?: string; message?: string; details?: unknown };
       } | null;

@@ -1,5 +1,7 @@
 /** OIDC PKCE helpers — mirrors Knowledge Core web UI login. */
 
+import type { AuthConfig } from "@itmap/archimate-core";
+
 export type UiConfig = {
   authMode: "dev" | "oidc" | "bootstrap";
   oidcIssuer: string;
@@ -15,9 +17,24 @@ export type UiConfig = {
 const PKCE_VERIFIER_KEY = "itmap.pkce.verifier";
 const OIDC_STATE_KEY = "itmap.oidc.state";
 const DEFAULT_OIDC_SCOPES = "openid profile email groups";
+/** Refresh this many ms before access/id token expiry. */
+export const REFRESH_SKEW_MS = 60_000;
 
 /** ITMap callback path (not KC's /ui/callback). */
 export const ITMAP_OIDC_REDIRECT_PATH = "/callback";
+
+type TokenEndpointResponse = {
+  id_token?: string;
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+};
+
+export type OidcTokenResult = {
+  token: string;
+  refreshToken?: string;
+  expiresAt: number;
+};
 
 function b64url(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -55,6 +72,17 @@ async function oidcDiscovery(issuer: string): Promise<{
   return res.json();
 }
 
+function applyTokenResponse(tokens: TokenEndpointResponse, prevRefresh?: string): OidcTokenResult {
+  const token = tokens.id_token || tokens.access_token;
+  if (!token) throw new Error("no token in response");
+  const expiresIn = typeof tokens.expires_in === "number" ? tokens.expires_in : 3600;
+  return {
+    token,
+    refreshToken: tokens.refresh_token || prevRefresh,
+    expiresAt: Date.now() + expiresIn * 1000,
+  };
+}
+
 export async function startOidcLogin(cfg: UiConfig): Promise<void> {
   if (!cfg.oidcIssuer) throw new Error("OIDC issuer not configured");
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)).buffer);
@@ -80,7 +108,7 @@ export async function finishOidcLogin(
   cfg: UiConfig,
   code: string,
   state: string,
-): Promise<{ token: string }> {
+): Promise<OidcTokenResult> {
   const expected = sessionStorage.getItem(OIDC_STATE_KEY);
   if (!expected || expected !== state) throw new Error("invalid OIDC state");
   const verifier = sessionStorage.getItem(PKCE_VERIFIER_KEY);
@@ -100,10 +128,46 @@ export async function finishOidcLogin(
     body,
   });
   if (!tokenRes.ok) throw new Error(`token exchange failed: ${await tokenRes.text()}`);
-  const tokens = (await tokenRes.json()) as { id_token?: string; access_token?: string };
-  const token = tokens.id_token || tokens.access_token;
-  if (!token) throw new Error("no token in response");
+  const tokens = (await tokenRes.json()) as TokenEndpointResponse;
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
   sessionStorage.removeItem(OIDC_STATE_KEY);
-  return { token };
+  return applyTokenResponse(tokens);
+}
+
+/** Exchange refresh_token at IdP. Throws on failure (caller clears session). */
+export async function refreshOidcTokens(
+  cfg: UiConfig,
+  refreshToken: string,
+): Promise<OidcTokenResult> {
+  if (!cfg.oidcIssuer) throw new Error("OIDC issuer not configured");
+  const discovery = await oidcDiscovery(cfg.oidcIssuer);
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: oidcClientId(cfg),
+    refresh_token: refreshToken,
+  });
+  const tokenRes = await fetch(discovery.token_endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!tokenRes.ok) throw new Error(`refresh failed: ${await tokenRes.text()}`);
+  const tokens = (await tokenRes.json()) as TokenEndpointResponse;
+  return applyTokenResponse(tokens, refreshToken);
+}
+
+export function mergeOidcTokens(auth: AuthConfig, tokens: OidcTokenResult): AuthConfig {
+  return {
+    ...auth,
+    mode: "oidc",
+    token: tokens.token,
+    refreshToken: tokens.refreshToken,
+    expiresAt: tokens.expiresAt,
+  };
+}
+
+export function isOidcAccessExpired(auth: AuthConfig, skewMs = REFRESH_SKEW_MS): boolean {
+  if (auth.mode !== "oidc") return false;
+  if (typeof auth.expiresAt !== "number") return false;
+  return Date.now() >= auth.expiresAt - skewMs;
 }

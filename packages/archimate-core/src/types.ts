@@ -263,6 +263,10 @@ export interface GraphNeighborhood {
 export interface AuthConfig {
   mode: "bootstrap" | "dev" | "oidc" | "bearer";
   token?: string;
+  /** OIDC refresh token (rotated by IdP on each refresh). */
+  refreshToken?: string;
+  /** Absolute expiry of `token` (ms since epoch), from `expires_in`. */
+  expiresAt?: number;
   subject?: string;
   roles?: string;
 }

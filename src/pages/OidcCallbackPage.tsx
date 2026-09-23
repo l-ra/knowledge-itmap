@@ -20,8 +20,15 @@ export function OidcCallbackPage() {
     void (async () => {
       try {
         const cfg = await loadUiConfig();
-        const { token } = await finishOidcLogin(cfg, code, state);
-        const next = { mode: "oidc" as const, token, subject: "", roles: "" };
+        const tokens = await finishOidcLogin(cfg, code, state);
+        const next = {
+          mode: "oidc" as const,
+          token: tokens.token,
+          refreshToken: tokens.refreshToken,
+          expiresAt: tokens.expiresAt,
+          subject: "",
+          roles: "",
+        };
         getKc().setAuth(next);
         try {
           const me = await getKc().me();
