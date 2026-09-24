@@ -27,6 +27,7 @@ function baseCfg(over: Partial<McpServerConfig> = {}): McpServerConfig {
     oauthEnabled: true,
     publicUrl: "https://itmap.example.com",
     oauthIssuer: "https://id.example.com",
+    oauthClientId: "knowledge-core",
     oauthScopes: ["openid", "profile", "email", "groups"],
     ...over,
   };

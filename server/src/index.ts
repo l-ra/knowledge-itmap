@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { loadConfig, type McpServerConfig } from "./config.js";
+import { loadConfig, tokenUiEnabled, type McpServerConfig } from "./config.js";
 import { AppContext } from "./context.js";
 import { createMcpServer } from "./createMcpServer.js";
 import {
@@ -11,11 +11,12 @@ import {
   wwwAuthenticateHeader,
 } from "./oauth.js";
 import { McpSessionState } from "./session.js";
+import { mountTokenUi, TOKEN_UI_PATH } from "./tokenUi.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
   console.error(
-    `itmap-mcp starting transport=${config.transport} writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"} oauth=${config.oauthEnabled} pid=${process.pid}`,
+    `itmap-mcp starting transport=${config.transport} writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"} oauth=${config.oauthEnabled} tokenUi=${tokenUiEnabled(config)} pid=${process.pid}`,
   );
 
   if (config.transport === "stdio") {
@@ -62,6 +63,8 @@ async function startHttp(config: McpServerConfig): Promise<void> {
     app.get("/.well-known/oauth-protected-resource/mcp", sendPrm);
   }
 
+  mountTokenUi(app, config);
+
   app.get("/health", (_req, res) => {
     res.json({
       ok: true,
@@ -69,6 +72,8 @@ async function startHttp(config: McpServerConfig): Promise<void> {
       writePackages: config.writePackages,
       defaultPackage: config.defaultPackage,
       oauthEnabled: config.oauthEnabled,
+      tokenUi: tokenUiEnabled(config),
+      tokenUiPath: tokenUiEnabled(config) ? TOKEN_UI_PATH : null,
       pid: process.pid,
     });
   });
@@ -134,8 +139,9 @@ async function startHttp(config: McpServerConfig): Promise<void> {
   });
 
   app.listen(config.httpPort, () => {
+    const tokenHint = tokenUiEnabled(config) ? ` tokenUi=${TOKEN_UI_PATH}` : "";
     console.error(
-      `itmap-mcp HTTP listening on :${config.httpPort}/mcp writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"}`,
+      `itmap-mcp HTTP listening on :${config.httpPort}/mcp writePackages=[${config.writePackages.join(",")}] defaultPackage=${config.defaultPackage ?? "null"}${tokenHint}`,
     );
   });
 }

@@ -98,9 +98,83 @@ describe("AppContext write gate", () => {
       oauthEnabled: false,
       publicUrl: "",
       oauthIssuer: "",
+      oauthClientId: "",
       oauthScopes: [] as string[],
     };
     const ctx = AppContext.create(config);
     expect(() => ctx.approveWritePackage("archimate-lite")).toThrow(/metamodel/);
+  });
+});
+
+function baseConfig(overrides: Partial<Parameters<typeof AppContext.create>[0]> = {}) {
+  return {
+    kcBaseUrl: "http://localhost:8080",
+    writePackages: ["org-ote"],
+    defaultPackage: "org-ote",
+    orgPackage: "org-ote",
+    lang: "cs" as const,
+    writeMode: "propose" as const,
+    authMode: "service" as const,
+    kcToken: "svc-secret",
+    kcAuthMode: "bearer" as const,
+    kcSubject: "t",
+    kcRoles: "admin",
+    transport: "stdio" as const,
+    httpPort: 3100,
+    oeMaxBytes: 1000,
+    fileRoots: [] as string[],
+    oauthEnabled: false,
+    publicUrl: "",
+    oauthIssuer: "",
+    oauthClientId: "",
+    oauthScopes: [] as string[],
+    ...overrides,
+  };
+}
+
+describe("AppContext getAccessToken", () => {
+  it("returns service ITMAP_KC_TOKEN", () => {
+    const ctx = AppContext.create(baseConfig());
+    const t = ctx.getAccessToken();
+    expect(t).toEqual({
+      accessToken: "svc-secret",
+      tokenSource: "service",
+      authMode: "service",
+      kcAuthMode: "bearer",
+      kcBaseUrl: "http://localhost:8080",
+      authorizationHeader: "Bearer svc-secret",
+    });
+  });
+
+  it("returns forwarded session token", () => {
+    const session = new McpSessionState({
+      writePackagesAllowlist: ["org-ote"],
+      defaultPackage: "org-ote",
+      lang: "cs",
+      writeMode: "propose",
+      authMode: "forward",
+      forwardedToken: "fwd-jwt",
+    });
+    const ctx = AppContext.create(baseConfig({ authMode: "forward", kcToken: "" }), session);
+    const t = ctx.getAccessToken();
+    expect(t.accessToken).toBe("fwd-jwt");
+    expect(t.tokenSource).toBe("forward");
+    expect(t.authorizationHeader).toBe("Bearer fwd-jwt");
+  });
+
+  it("rejects empty service token", () => {
+    const ctx = AppContext.create(baseConfig({ kcToken: "", kcAuthMode: "dev" }));
+    expect(() => ctx.getAccessToken()).toThrow(/No service access token/);
+  });
+
+  it("rejects missing forward token", () => {
+    const session = new McpSessionState({
+      writePackagesAllowlist: ["org-ote"],
+      lang: "cs",
+      writeMode: "propose",
+      authMode: "forward",
+    });
+    const ctx = AppContext.create(baseConfig({ authMode: "forward", kcToken: "" }), session);
+    expect(() => ctx.getAccessToken()).toThrow(/Forward auth mode requires/);
   });
 });

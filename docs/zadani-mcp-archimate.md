@@ -107,6 +107,7 @@ MCP clients  ──►  server/ ──/v1──┘
 |-----------------|--------|
 | Resource `modeling://primer` (+ `/cs`, `/en`) | Stručný koncept Lite (L0–L4, co patří do modelu, ChangeSet, karty ↔ ArchiMate) — CS i EN |
 | `get_session` / `configure_session` | lang, writeMode, workingPackage (must be approved) |
+| `get_access_token` | export Bearer token for KC (`confirm: true`; service / forward) — prefer `/token` UI when you have no MCP Bearer yet |
 | `approve_write_package` / `revoke_write_package` | per-session write approval (`confirm: true`) |
 | `open_changeset` / `commit_changeset` / `cancel_changeset` | v `propose` vyžaduje `confirm_commit: true`; v `commit` bez elevate |
 | `health` | KC reachability, schema, allowlist, session |

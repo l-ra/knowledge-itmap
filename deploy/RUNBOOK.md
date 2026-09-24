@@ -24,16 +24,18 @@ helm upgrade --install itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version
 ## Pocket ID (OIDC)
 
 1. KC: `pocketId.enabled=true`, Admin → OIDC / IdP (nebo auto-register Job)
-2. Pocket ID client (stejný jako KC): přidejte redirect  
-   `https://<itmap-host>/callback`
+2. Pocket ID client (stejný jako KC): přidejte redirect URIs  
+   - `https://<itmap-host>/callback` (ITMap SPA)  
+   - `https://<itmap-host>/token/callback` (MCP token UI)
 3. IT Map Login → **Přihlásit přes Pocket ID / OIDC**
-4. MCP OAuth:
+4. MCP OAuth + token bootstrap:
 
 ```bash
 --set mcp.authMode=forward \
 --set mcp.oauth.enabled=true \
 --set mcp.oauth.publicUrl=https://<itmap-host> \
---set mcp.oauth.issuer=https://<pocket-id-host>
+--set mcp.oauth.issuer=https://<pocket-id-host> \
+--set mcp.oauth.clientId=knowledge-core
 ```
 
 Ověření:
@@ -41,9 +43,11 @@ Ověření:
 ```bash
 curl -fsS https://<itmap-host>/.well-known/oauth-protected-resource/mcp
 curl -i https://<itmap-host>/mcp   # očekávejte 401 + WWW-Authenticate
+curl -fsS https://<itmap-host>/token/config
 ```
 
-MCP klienti s OAuth podporou použijí URL `https://<itmap-host>/mcp`.
+MCP klienti s OAuth podporou použijí URL `https://<itmap-host>/mcp`.  
+Bez OAuth v klientovi: otevřete `https://<itmap-host>/token`, přihlaste se a zkopírujte Bearer.
 
 ## Upgrade
 
@@ -58,6 +62,6 @@ helm upgrade itmap oci://ghcr.io/l-ra/charts/knowledge-itmap --version X.Y.Z \
 | Symptom | Check |
 |---------|--------|
 | UI login „ui/config failed“ | KC Service / `knowledgeCore.url` / nginx `/v1` proxy |
-| OIDC redirect mismatch | Pocket ID callback = `https://<host>/callback` |
-| MCP 401 always | Očekávané bez Bearer; pošlete JWT z Pocket ID |
+| OIDC redirect mismatch | Pocket ID callback = `/callback` (SPA) a `/token/callback` (MCP token UI) |
+| MCP 401 always | Očekávané bez Bearer; token z `https://<host>/token` nebo OAuth v klientovi |
 | KC 401 po MCP OAuth | JWT `aud` musí sedět s KC `oidcAudience` / client_id |

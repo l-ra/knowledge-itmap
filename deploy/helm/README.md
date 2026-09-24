@@ -26,9 +26,10 @@ kubectl -n knowledge-core port-forward svc/itmap-knowledge-itmap 8081:80
 ## Pocket ID / OIDC
 
 1. Ensure Knowledge Core runs with `authMode=oidc` and Pocket ID (KC Helm `pocketId.enabled=true`).
-2. On the **same** public PKCE OIDC client used by KC, add redirect URI:
-   - `https://<itmap-host>/callback`
-3. Enable MCP OAuth for clients that support OAuth/OIDC:
+2. On the **same** public PKCE OIDC client used by KC, add redirect URIs:
+   - `https://<itmap-host>/callback` (ITMap SPA)
+   - `https://<itmap-host>/token/callback` (MCP token login UI)
+3. Enable MCP OAuth for clients that support OAuth/OIDC, and/or set issuer for the `/token` bootstrap page:
 
 ```bash
 helm upgrade --install itmap deploy/helm/knowledge-itmap \
@@ -37,11 +38,14 @@ helm upgrade --install itmap deploy/helm/knowledge-itmap \
   --set mcp.oauth.enabled=true \
   --set mcp.oauth.publicUrl=https://itmap.example.com \
   --set mcp.oauth.issuer=https://id.example.com \
+  --set mcp.oauth.clientId=knowledge-core \
   --set ingress.enabled=true \
   --set ingress.hosts[0].host=itmap.example.com
 ```
 
 JWT `aud` must match KC’s OIDC audience/client_id so KC accepts forwarded tokens.
+
+Bootstrap without MCP-client OAuth: open `https://<itmap-host>/token`, sign in, copy Bearer into Cursor.
 
 ## Values (key)
 
@@ -50,6 +54,8 @@ JWT `aud` must match KC’s OIDC audience/client_id so KC accepts forwarded toke
 | `knowledgeCore.url` | `http://kc-knowledge-core:8080` | In-cluster KC |
 | `mcp.authMode` | `forward` | Use `service` + secret for automation |
 | `mcp.oauth.enabled` | `false` | PRM + 401 WWW-Authenticate |
+| `mcp.oauth.issuer` | `""` | Pocket ID; enables `/token` UI when set |
+| `mcp.oauth.clientId` | `knowledge-core` | Public PKCE client |
 | `image.repository` | `ghcr.io/l-ra/knowledge-itmap` | UI |
 | `image.tag` | `""` → Chart.appVersion | UI image tag |
 | `mcpImage.repository` | `ghcr.io/l-ra/knowledge-itmap-mcp` | MCP |

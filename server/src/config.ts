@@ -39,9 +39,16 @@ export type McpServerConfig = {
   publicUrl: string;
   /** Pocket ID / OIDC issuer URL. */
   oauthIssuer: string;
+  /** Public OIDC client_id (PKCE) for token UI + MCP OAuth clients. */
+  oauthClientId: string;
   /** Scopes advertised in PRM / WWW-Authenticate. */
   oauthScopes: string[];
 };
+
+/** Token login UI is available when issuer + client_id are set (HTTP transport). */
+export function tokenUiEnabled(cfg: Pick<McpServerConfig, "oauthIssuer" | "oauthClientId">): boolean {
+  return Boolean(cfg.oauthIssuer?.trim() && cfg.oauthClientId?.trim());
+}
 
 function requireEnv(name: string): string {
   const v = process.env[name]?.trim();
@@ -156,6 +163,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     (env.ITMAP_MCP_OAUTH_ENABLED || "").trim() === "1";
   const publicUrl = env.ITMAP_MCP_PUBLIC_URL?.trim() || "";
   const oauthIssuer = env.ITMAP_MCP_OIDC_ISSUER?.trim() || "";
+  const oauthClientId =
+    env.ITMAP_MCP_OIDC_CLIENT_ID?.trim() ||
+    (oauthIssuer ? "knowledge-core" : "");
   const oauthScopes = parsePackageList(env.ITMAP_MCP_OAUTH_SCOPES).length
     ? parsePackageList(env.ITMAP_MCP_OAUTH_SCOPES)
     : ["openid", "profile", "email", "groups"];
@@ -189,6 +199,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     oauthEnabled,
     publicUrl,
     oauthIssuer,
+    oauthClientId,
     oauthScopes,
   };
 }

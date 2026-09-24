@@ -8,3 +8,4 @@
 
 4. UI: http://{{ include "knowledge-itmap.fullname" . }}:{{ .Values.service.port }}
 5. MCP (via UI nginx): /mcp — OAuth PRM at /.well-known/oauth-protected-resource/mcp
+6. Token login UI (OIDC): /token — copy Bearer for MCP clients (add IdP redirect /token/callback)

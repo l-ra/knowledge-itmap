@@ -218,6 +218,26 @@ export function createMcpServer(ctx: AppContext): McpServer {
   );
 
   server.registerTool(
+    "get_access_token",
+    {
+      description:
+        "Return the Bearer access token this MCP session uses against Knowledge Core (for copy into another app). service→ITMAP_KC_TOKEN; forward→session/Authorization token. Requires confirm: true (sensitive).",
+      inputSchema: z.object({
+        confirm: z
+          .boolean()
+          .describe("Must be true — explicit disclosure of credentials"),
+      }),
+    },
+    async (args) =>
+      withTool(ctx, "get_access_token", async () => {
+        if (args.confirm !== true) {
+          throw new Error("get_access_token requires confirm: true");
+        }
+        return ctx.getAccessToken();
+      }),
+  );
+
+  server.registerTool(
     "approve_write_package",
     {
       description:

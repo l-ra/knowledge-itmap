@@ -93,8 +93,10 @@ mcp:
     enabled: false
     # Public base URL of ITMap ingress (required when oauth.enabled)
     publicUrl: ""
-    # Pocket ID issuer (same as KC OIDC issuer)
+    # Pocket ID issuer (same as KC OIDC issuer) — also enables /token login UI
     issuer: ""
+    # Public PKCE client_id (same as KC/ITMap UI)
+    clientId: "knowledge-core"
     scopes: "openid,profile,email,groups"
 
 extraEnv: []

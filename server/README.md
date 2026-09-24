@@ -20,6 +20,7 @@ See [`docs/adr-mcp-multipackage-session.md`](../docs/adr-mcp-multipackage-sessio
 3. `approve_write_package({ packageCode: "org-ote", confirm: true })`  
 4. Optional `configure_session({ workingPackage: "org-ote" })`  
 5. Write tools / ChangeSet / `commit_changeset`  
+6. Optional `get_access_token({ confirm: true })` — copy Bearer token into another app (Postman, scripts)  
 
 ## Run
 
@@ -102,8 +103,9 @@ Smoke covers: healthz, schema, primer, write-gate without approval, approve, lis
 | `ITMAP_MCP_FILE_ROOTS` | for path OE | empty | Colon- or comma-separated absolute dirs; required for `path=` on import/export |
 | `ITMAP_MCP_OAUTH_ENABLED` | | `false` | HTTP: RFC 9728 PRM + `401` `WWW-Authenticate` |
 | `ITMAP_MCP_PUBLIC_URL` | oauth* | — | Public base (e.g. `https://itmap.example.com`) |
-| `ITMAP_MCP_OIDC_ISSUER` | oauth* | — | Pocket ID issuer (same as KC) |
-| `ITMAP_MCP_OAUTH_SCOPES` | | `openid,profile,email,groups` | CSV scopes in PRM |
+| `ITMAP_MCP_OIDC_ISSUER` | oauth* / token UI | — | Pocket ID issuer (same as KC); enables `/token` UI |
+| `ITMAP_MCP_OIDC_CLIENT_ID` | | `knowledge-core` when issuer set | Public PKCE client_id |
+| `ITMAP_MCP_OAUTH_SCOPES` | | `openid,profile,email,groups` | CSV scopes in PRM / token UI |
 
 \* Provide `WRITE_PACKAGES` **or** legacy `ORG_PACKAGE`. With `ITMAP_KC_AUTH_MODE=dev`, token may be empty. OAuth\* required when `ITMAP_MCP_OAUTH_ENABLED=true`.
 
@@ -116,6 +118,16 @@ When `ITMAP_MCP_TRANSPORT=http` and `ITMAP_MCP_OAUTH_ENABLED=true`:
 3. Client completes OAuth Authorization Code + PKCE at Pocket ID (same client/audience as Knowledge Core so JWT `aud` validates at KC).
 4. Client retries `/mcp` with `Authorization: Bearer <token>`; MCP uses `ITMAP_MCP_AUTH_MODE=forward` to Knowledge Core.
 
+### Browser token UI (bootstrap)
+
+Chicken-and-egg: many MCP clients need a Bearer before they can call tools. Open **`/token`** on the MCP HTTP server (or via UI nginx proxy):
+
+1. Set `ITMAP_MCP_OIDC_ISSUER` (+ optional `ITMAP_MCP_OIDC_CLIENT_ID`, default `knowledge-core`).
+2. In Pocket ID, add redirect URI: `https://<host>/token/callback` (and `http://localhost:3100/token/callback` for local MCP).
+3. Open `/token` → **Přihlásit přes OIDC** → copy the recommended Bearer into Cursor / other apps.
+
+Token UI works whenever issuer+clientId are set (even if `ITMAP_MCP_OAUTH_ENABLED=false`). `/health` reports `tokenUi` / `tokenUiPath`.
+
 Example env for cluster:
 
 ```bash
@@ -124,6 +136,7 @@ export ITMAP_MCP_AUTH_MODE=forward
 export ITMAP_MCP_OAUTH_ENABLED=true
 export ITMAP_MCP_PUBLIC_URL=https://itmap.example.com
 export ITMAP_MCP_OIDC_ISSUER=https://id.example.com
+export ITMAP_MCP_OIDC_CLIENT_ID=knowledge-core
 ```
 
 Stdio mode does not use OAuth — keep `ITMAP_MCP_AUTH_MODE=service` with a token.
@@ -161,6 +174,7 @@ Prefer a **single** MCP server process. After changing env, reload the MCP serve
 - Metamodel packages never writable: `archimate-lite`, `kc-base`, `archimate-ui-traversal`, `archimate-ui-cards`, `architecture-migration`.
 - Writes use `X-Validation-Mode: strict` and always bind an open ChangeSet.
 - Deprecated `orgPackage` on `get_session` / `configure_session` aliases `workingPackage`.
+- `get_access_token({ confirm: true })` returns the effective KC Bearer (`accessToken`, `authorizationHeader`, `kcBaseUrl`). In `service` mode that is `ITMAP_KC_TOKEN`; in `forward` mode the session/HTTP token. Treat as a secret.
 
 ## Explore tools (catalog reviews)
 

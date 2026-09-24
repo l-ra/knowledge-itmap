@@ -204,6 +204,46 @@ export class AppContext {
     }
     return t;
   }
+
+  /**
+   * Effective Bearer token used for Knowledge Core calls — for copy into other apps.
+   * service → ITMAP_KC_TOKEN; forward → session forwarded token.
+   */
+  getAccessToken(): {
+    accessToken: string;
+    tokenSource: "service" | "forward";
+    authMode: "service" | "forward";
+    kcAuthMode: McpServerConfig["kcAuthMode"];
+    kcBaseUrl: string;
+    authorizationHeader: string;
+  } {
+    if (this.config.authMode === "forward") {
+      const accessToken = this.requireForwardToken();
+      return {
+        accessToken,
+        tokenSource: "forward",
+        authMode: "forward",
+        kcAuthMode: this.config.kcAuthMode,
+        kcBaseUrl: this.config.kcBaseUrl,
+        authorizationHeader: `Bearer ${accessToken}`,
+      };
+    }
+
+    const accessToken = this.config.kcToken?.trim() || "";
+    if (!accessToken) {
+      throw new Error(
+        "No service access token configured (ITMAP_KC_TOKEN empty; ITMAP_KC_AUTH_MODE=dev has no bearer to export)",
+      );
+    }
+    return {
+      accessToken,
+      tokenSource: "service",
+      authMode: "service",
+      kcAuthMode: this.config.kcAuthMode,
+      kcBaseUrl: this.config.kcBaseUrl,
+      authorizationHeader: `Bearer ${accessToken}`,
+    };
+  }
 }
 
 function buildAuth(config: McpServerConfig, session: McpSessionState): AuthConfig {
